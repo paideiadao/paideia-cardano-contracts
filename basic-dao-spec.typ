@@ -447,3 +447,15 @@ A DAO member can (fully or partially) empty their Vote utxo of governance tokens
       - N Governance token
   ]
 )
+
+= Implementation choices
+
+During our work on Coinecta we have gained experience in using Aiken for on chain code and C\# in combination with Pallas.net for off chain code.
+
+== On chain
+
+Besides Aiken and of course Plutus there are now numerous options for writing smart contracts, of which plu-ts is the most similar to Aiken. Due to our previous experience with Aiken we feel that using Aiken will give us a fair boost in productivity and no clear con's. As we have no Haskell experience we feel using Plutus will give us a large learning curve for little benefit over Aiken. So our on chain language of choice will be Aiken.
+
+== Off chain
+
+The off chain code could be made in many different languages, but both for productivity's sake and for improving open source availabiltity we will be using C\# in the backend due to our experience with the language and the relative small footprint in Cardano's open source ecosystem.
