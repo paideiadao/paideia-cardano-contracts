@@ -450,7 +450,7 @@ A DAO member can (fully or partially) empty their Vote utxo of governance tokens
 
 = Implementation choices
 
-During our work on Coinecta we have gained experience in using Aiken for on chain code and C\# in combination with Pallas.net for off chain code.
+During our work on Coinecta we have gained experience in using Aiken for on chain code and C\# in combination with Pallas.NET for off chain code.
 
 == On chain
 
@@ -459,3 +459,12 @@ Besides Aiken and of course Plutus there are now numerous options for writing sm
 == Off chain
 
 The off chain code could be made in many different languages, but both for productivity's sake and for improving open source availabiltity we will be using C\# in the backend due to our experience with the language and the relative small footprint in Cardano's open source ecosystem.
+
+== Tech List
+
+- Aiken
+  - sundae/multisig
+- C\#
+  - Pallas.NET
+  - Cborserializer
+  - SAIB.CardanoSharp.Wallet
