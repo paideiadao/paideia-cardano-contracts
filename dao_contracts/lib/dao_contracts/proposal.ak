@@ -1,20 +1,19 @@
-use aiken/bytearray.{drop, take}
 use aiken/cbor.{serialise}
-use aiken/dict.{get, keys, size, to_pairs}
-use aiken/hash.{blake2b_256}
-use aiken/interval.{Finite, Interval, IntervalBound}
-use aiken/list.{
+use aiken/collection/dict.{get, keys, size, to_pairs}
+use aiken/collection/list.{
   all, any, at, filter, find, foldl, indexed_map, length, map, range, zip,
 }
+use aiken/crypto.{blake2b_256}
+use aiken/interval.{Finite, Interval, IntervalBound}
 use aiken/option.{and_then, is_some, or_else}
-use aiken/transaction.{
-  Datum, InlineDatum, Input, Mint, Output, OutputReference, ScriptContext, Spend,
-  find_input, find_script_outputs,
+use aiken/primitive/bytearray.{drop, take}
+use cardano/address.{Script}
+use cardano/assets.{
+  AssetName, PolicyId, ada_policy_id, flatten, quantity_of, to_dict, tokens,
 }
-use aiken/transaction/credential.{ScriptCredential}
-use aiken/transaction/value.{
-  AssetName, PolicyId, ada_policy_id, flatten, from_minted_value, minted_to_dict,
-  quantity_of, tokens,
+use cardano/transaction.{
+  Datum, InlineDatum, Input, Output, OutputReference, Transaction, find_input,
+  find_script_outputs,
 }
 use dao_contracts/dao.{DAODatum, get_dao_datum_from_reference}
 use dao_contracts/vote.{get_vote_reference}
@@ -53,12 +52,12 @@ pub type ProposalRedeemer {
 }
 
 fn minimum_staked(
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
   vote_policy_id: PolicyId,
   vote_key: ByteArray,
 ) -> Bool {
-  let vote_output = get_vote_reference(ctx, vote_policy_id, vote_key)
+  let vote_output = get_vote_reference(tx, vote_policy_id, vote_key)
   let staked_governance =
     quantity_of(
       vote_output.value,
@@ -69,12 +68,14 @@ fn minimum_staked(
 }
 
 fn correct_duration(
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
   proposal_datum: ProposalDatum,
 ) -> Bool {
-  expect Interval(_, IntervalBound(Finite(tx_time), _)) =
-    ctx.transaction.validity_range
+  expect Interval {
+    upper_bound: IntervalBound { bound_type: Finite(tx_time), .. },
+    ..
+  } = tx.validity_range
   let minimum_duration =
     proposal_datum.end_time >= tx_time + dao_datum.min_proposal_time
   let maximum_duration =
@@ -101,15 +102,15 @@ pub fn get_vote_receipt_identifier(
 }
 
 fn single_identifier_minted_into_proposal(
-  ctx: ScriptContext,
+  tx: Transaction,
   policy_id: PolicyId,
   proposal_output: Output,
   proposal_datum: ProposalDatum,
 ) -> Bool {
   expect Some(_output_ref_present) =
-    find_input(ctx.transaction.inputs, proposal_datum.identifier)
+    find_input(tx.inputs, proposal_datum.identifier)
   expect [minted_proposal_identifier] =
-    ctx.transaction.mint |> from_minted_value |> tokens(policy_id) |> to_pairs()
+    tx.mint |> tokens(policy_id) |> to_pairs()
   let proposal_identifier = minted_proposal_identifier.1st
   let proposal_identifier_amount = minted_proposal_identifier.2nd
   let correct_identifier = get_proposal_identifier(proposal_datum.identifier)
@@ -121,20 +122,19 @@ fn single_identifier_minted_into_proposal(
 }
 
 fn create_proposal(
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
   vote_policy_id: PolicyId,
   vote_key: ByteArray,
   policy_id: PolicyId,
 ) -> Bool {
-  expect [proposal_output] =
-    find_script_outputs(ctx.transaction.outputs, policy_id)
+  expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)
   let proposal_datum = to_proposal_datum(proposal_output.datum)
   and {
-    minimum_staked(ctx, dao_datum, vote_policy_id, vote_key)?,
-    correct_duration(ctx, dao_datum, proposal_datum)?,
+    minimum_staked(tx, dao_datum, vote_policy_id, vote_key)?,
+    correct_duration(tx, dao_datum, proposal_datum)?,
     single_identifier_minted_into_proposal(
-      ctx,
+      tx,
       policy_id,
       proposal_output,
       proposal_datum,
@@ -157,13 +157,12 @@ fn get_tally_difference(in: List<Int>, out: List<Int>) -> List<Int> {
 }
 
 fn tokens_minted_burned_according_to_tally(
-  ctx: ScriptContext,
+  tx: Transaction,
   policy_id: PolicyId,
   identifier: ByteArray,
   tally_difference: List<Int>,
 ) -> Bool {
-  let minted_tokens =
-    ctx.transaction.mint |> from_minted_value |> tokens(policy_id)
+  let minted_tokens = tx.mint |> tokens(policy_id)
   let number_of_changes =
     tally_difference |> filter(fn(td) { td != 0 }) |> length()
   let tally_matches_mint =
@@ -196,24 +195,22 @@ fn vote_not_exceed_governance(dao_datum: DAODatum, vote_output: Output) -> Bool 
     |> all(fn(a) { a.3rd <= governance_amount || a.1st == ada_policy_id })
 }
 
-fn before_end_time(ctx: ScriptContext, proposal_datum: ProposalDatum) -> Bool {
-  expect Interval(_, IntervalBound(Finite(tx_time), _)) =
-    ctx.transaction.validity_range
+fn before_end_time(tx: Transaction, proposal_datum: ProposalDatum) -> Bool {
+  expect Interval {
+    upper_bound: IntervalBound { bound_type: Finite(tx_time), .. },
+    ..
+  } = tx.validity_range
   tx_time <= proposal_datum.end_time
 }
 
 fn no_leaking_vote_receipts(
-  ctx: ScriptContext,
+  tx: Transaction,
   policy_id: PolicyId,
   identifier: AssetName,
   vote_policy_id: PolicyId,
 ) -> Bool {
-  ctx.transaction.outputs
-    |> filter(
-        fn(o) {
-          o.address.payment_credential != ScriptCredential(vote_policy_id)
-        },
-      )
+  tx.outputs
+    |> filter(fn(o) { o.address.payment_credential != Script(vote_policy_id) })
     |> all(
         fn(o) {
           o.value
@@ -225,17 +222,14 @@ fn no_leaking_vote_receipts(
 }
 
 fn cast_vote(
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
   policy_id: PolicyId,
   vote_policy_id: PolicyId,
 ) -> Bool {
-  expect [proposal_output] =
-    find_script_outputs(ctx.transaction.outputs, policy_id)
-  expect [proposal_input] =
-    find_script_inputs(ctx.transaction.inputs, policy_id)
-  expect [vote_output] =
-    find_script_outputs(ctx.transaction.outputs, vote_policy_id)
+  expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)
+  expect [proposal_input] = find_script_inputs(tx.inputs, policy_id)
+  expect [vote_output] = find_script_outputs(tx.outputs, vote_policy_id)
   let proposal_input_datum = to_proposal_datum(proposal_input.datum)
   let proposal_output_datum = to_proposal_datum(proposal_output.datum)
   let tally_difference =
@@ -246,14 +240,14 @@ fn cast_vote(
   let identifier = get_proposal_identifier(proposal_input_datum.identifier)
   and {
     tokens_minted_burned_according_to_tally(
-      ctx,
+      tx,
       policy_id,
       identifier,
       tally_difference,
     )?,
     vote_not_exceed_governance(dao_datum, vote_output)?,
-    before_end_time(ctx, proposal_output_datum)?,
-    no_leaking_vote_receipts(ctx, policy_id, identifier, vote_policy_id)?,
+    before_end_time(tx, proposal_output_datum)?,
+    no_leaking_vote_receipts(tx, policy_id, identifier, vote_policy_id)?,
   }
 }
 
@@ -294,37 +288,35 @@ fn proposals_ended(
       )
 }
 
-fn clean_receipts(ctx: ScriptContext, policy_id: PolicyId) -> Bool {
+fn clean_receipts(tx: Transaction, policy_id: PolicyId) -> Bool {
   let burned_tokens =
-    ctx.transaction.mint
-      |> from_minted_value()
+    tx.mint
       |> tokens(policy_id)
       |> to_pairs()
-  let proposal_references =
-    find_script_inputs(ctx.transaction.reference_inputs, policy_id)
+  let proposal_references = find_script_inputs(tx.reference_inputs, policy_id)
   proposals_ended(policy_id, burned_tokens, proposal_references)
 }
 
 pub fn mint(
+  policy_id: PolicyId,
   redeemer: ProposalRedeemer,
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_policy_id: PolicyId,
   dao_key: AssetName,
   vote_policy_id: PolicyId,
 ) -> Bool {
-  expect Mint(policy_id) = ctx.purpose
-  let dao_datum = get_dao_datum_from_reference(ctx, dao_policy_id, dao_key)
+  let dao_datum = get_dao_datum_from_reference(tx, dao_policy_id, dao_key)
   when redeemer is {
-    CreateProposal(vote_key) ->
-      create_proposal(ctx, dao_datum, vote_policy_id, vote_key, policy_id)
-    CastVote -> cast_vote(ctx, dao_datum, policy_id, vote_policy_id)
-    CleanReceipts -> clean_receipts(ctx, policy_id)
+    CreateProposal { vote_key } ->
+      create_proposal(tx, dao_datum, vote_policy_id, vote_key, policy_id)
+    CastVote -> cast_vote(tx, dao_datum, policy_id, vote_policy_id)
+    CleanReceipts -> clean_receipts(tx, policy_id)
     _ -> fail @"Wrong redeemer type"
   }
 }
 
-fn mint_policy_present(ctx: ScriptContext, policy_id: PolicyId) -> Bool {
-  expect Some(_) = ctx.transaction.mint |> minted_to_dict() |> get(policy_id)
+fn mint_policy_present(tx: Transaction, policy_id: PolicyId) -> Bool {
+  expect Some(_) = tx.mint |> to_dict() |> get(policy_id)
   True
 }
 
@@ -344,19 +336,17 @@ fn utxo_unchanged_except_tally(
 }
 
 fn cast_vote_spend(
-  ctx: ScriptContext,
+  tx: Transaction,
   datum: ProposalDatum,
   output_ref: OutputReference,
 ) -> Bool {
-  expect Some(proposal_input) = find_input(ctx.transaction.inputs, output_ref)
-  expect ScriptCredential(policy_id) =
-    proposal_input.output.address.payment_credential
-  expect [proposal_output] =
-    find_script_outputs(ctx.transaction.outputs, policy_id)
+  expect Some(proposal_input) = find_input(tx.inputs, output_ref)
+  expect Script(policy_id) = proposal_input.output.address.payment_credential
+  expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)
   and {
     utxo_unchanged_except_tally(proposal_input.output, datum, proposal_output)?,
-    before_end_time(ctx, datum)?,
-    mint_policy_present(ctx, policy_id)?,
+    before_end_time(tx, datum)?,
+    mint_policy_present(tx, policy_id)?,
   }
 }
 
@@ -375,9 +365,11 @@ fn utxo_unchanged_except_status(
   }
 }
 
-fn after_end_time(ctx: ScriptContext, proposal_datum: ProposalDatum) -> Bool {
-  expect Interval(IntervalBound(Finite(tx_time), _), _) =
-    ctx.transaction.validity_range
+fn after_end_time(tx: Transaction, proposal_datum: ProposalDatum) -> Bool {
+  expect Interval {
+    lower_bound: IntervalBound { bound_type: Finite(tx_time), .. },
+    ..
+  } = tx.validity_range
   tx_time > proposal_datum.end_time
 }
 
@@ -413,19 +405,17 @@ fn correct_winner(dao_datum: DAODatum, proposal_output: Output) -> Bool {
 }
 
 fn evaluate_proposal(
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
   output_ref: OutputReference,
   datum: ProposalDatum,
 ) -> Bool {
-  expect Some(proposal_input) = find_input(ctx.transaction.inputs, output_ref)
-  expect ScriptCredential(policy_id) =
-    proposal_input.output.address.payment_credential
-  expect [proposal_output] =
-    find_script_outputs(ctx.transaction.outputs, policy_id)
+  expect Some(proposal_input) = find_input(tx.inputs, output_ref)
+  expect Script(policy_id) = proposal_input.output.address.payment_credential
+  expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)
   and {
     utxo_unchanged_except_status(proposal_input.output, datum, proposal_output)?,
-    after_end_time(ctx, datum)?,
+    after_end_time(tx, datum)?,
     not_evaluated_yet(datum)?,
     correct_winner(dao_datum, proposal_output)?,
   }
@@ -434,16 +424,16 @@ fn evaluate_proposal(
 pub fn spend(
   datum: ProposalDatum,
   redeemer: ProposalRedeemer,
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_policy_id: PolicyId,
   dao_key: AssetName,
+  output_ref: OutputReference,
 ) -> Bool {
-  expect Spend(output_ref) = ctx.purpose
   when redeemer is {
-    CastVote -> cast_vote_spend(ctx, datum, output_ref)
+    CastVote -> cast_vote_spend(tx, datum, output_ref)
     EvaluateProposal -> {
-      let dao_datum = get_dao_datum_from_reference(ctx, dao_policy_id, dao_key)
-      evaluate_proposal(ctx, dao_datum, output_ref, datum)
+      let dao_datum = get_dao_datum_from_reference(tx, dao_policy_id, dao_key)
+      evaluate_proposal(tx, dao_datum, output_ref, datum)
     }
     _ -> fail @"Wrong redeemer type"
   }

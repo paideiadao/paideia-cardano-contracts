@@ -1,15 +1,13 @@
-use aiken/bytearray.{concat, drop, take}
 use aiken/cbor.{serialise}
-use aiken/dict.{filter, size, to_pairs}
-use aiken/hash.{blake2b_256}
-use aiken/list.{all, at, length, map}
-use aiken/transaction.{
-  InlineDatum, Mint, Output, OutputReference, ScriptContext, Spend, find_input,
+use aiken/collection/dict.{filter, size, to_pairs}
+use aiken/collection/list.{all, at, length, map}
+use aiken/crypto.{blake2b_256}
+use aiken/primitive/bytearray.{concat, drop, take}
+use cardano/address.{Address, Script}
+use cardano/assets.{AssetName, PolicyId, merge, quantity_of, tokens}
+use cardano/transaction.{
+  InlineDatum, Output, OutputReference, Transaction, find_input,
   find_script_outputs,
-}
-use aiken/transaction/credential.{Address, ScriptCredential}
-use aiken/transaction/value.{
-  AssetName, PolicyId, from_minted_value, merge, quantity_of, tokens,
 }
 use dao_contracts/dao.{DAODatum, get_dao_datum_from_reference}
 
@@ -37,10 +35,9 @@ pub fn unique_cip68_asset_name(output_ref: OutputReference) -> ByteArray {
 fn minted_cip68_vote_tokens(
   policy_id: PolicyId,
   unique_name: ByteArray,
-  ctx: ScriptContext,
+  tx: Transaction,
 ) -> Bool {
-  let minted_tokens =
-    from_minted_value(ctx.transaction.mint) |> tokens(policy_id)
+  let minted_tokens = tx.mint |> tokens(policy_id)
   expect [reference_token] =
     filter(
       minted_tokens,
@@ -57,18 +54,21 @@ fn minted_cip68_vote_tokens(
 }
 
 pub fn get_vote_reference(
-  ctx: ScriptContext,
+  tx: Transaction,
   vote_policy_id: PolicyId,
   vote_key: ByteArray,
 ) -> Output {
   expect [vote_reference] =
-    ctx.transaction.reference_inputs
+    tx.reference_inputs
       |> map(fn(ri) { ri.output })
       |> list.filter(
           fn(o) {
             (
               o.value
-                |> quantity_of(vote_policy_id, concat(reference_prefix, vote_key))
+                |> quantity_of(
+                    vote_policy_id,
+                    concat(reference_prefix, vote_key),
+                  )
             ) > 0
           },
         )
@@ -104,12 +104,12 @@ fn reference_into_valid_vote_utxo(
 fn create_vote(
   policy_id: PolicyId,
   unique_name: ByteArray,
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_datum: DAODatum,
 ) -> Bool {
-  expect [vote_output] = find_script_outputs(ctx.transaction.outputs, policy_id)
+  expect [vote_output] = find_script_outputs(tx.outputs, policy_id)
   and {
-    minted_cip68_vote_tokens(policy_id, unique_name, ctx)?,
+    minted_cip68_vote_tokens(policy_id, unique_name, tx)?,
     reference_into_valid_vote_utxo(
       vote_output,
       policy_id,
@@ -119,10 +119,9 @@ fn create_vote(
   }
 }
 
-fn key_and_reference_burned(ctx: ScriptContext, policy_id: PolicyId) -> Bool {
+fn key_and_reference_burned(tx: Transaction, policy_id: PolicyId) -> Bool {
   let minted_tokens =
-    ctx.transaction.mint
-      |> from_minted_value()
+    tx.mint
       |> tokens(policy_id)
       |> to_pairs()
   expect length(minted_tokens) == 2
@@ -137,64 +136,65 @@ fn key_and_reference_burned(ctx: ScriptContext, policy_id: PolicyId) -> Bool {
   }
 }
 
-fn no_vote_receipts_present(ctx: ScriptContext, dao_datum: DAODatum) -> Bool {
+fn no_vote_receipts_present(tx: Transaction, dao_datum: DAODatum) -> Bool {
   dao_datum.whitelisted_proposals
     |> all(
         fn(wlp) {
-          ctx.transaction.inputs
+          tx.inputs
             |> all(fn(i) { ( i.output.value |> tokens(wlp) |> size() ) == 0 })
         },
       )
 }
 
 fn empty_vote_mint(
-  ctx: ScriptContext,
+  tx: Transaction,
   policy_id: PolicyId,
   dao_datum: DAODatum,
 ) -> Bool {
   and {
-    key_and_reference_burned(ctx, policy_id)?,
-    no_vote_receipts_present(ctx, dao_datum)?,
+    key_and_reference_burned(tx, policy_id)?,
+    no_vote_receipts_present(tx, dao_datum)?,
   }
 }
 
 pub fn mint(
+  policy_id: PolicyId,
   redeemer: VoteRedeemer,
-  ctx: ScriptContext,
+  tx: Transaction,
   dao_policy_id: PolicyId,
   dao_key: AssetName,
 ) -> Bool {
-  expect Mint(policy_id) = ctx.purpose
-  let dao_datum = get_dao_datum_from_reference(ctx, dao_policy_id, dao_key)
+  let dao_datum = get_dao_datum_from_reference(tx, dao_policy_id, dao_key)
   when redeemer is {
-    CreateVote(output_ref) -> {
+    CreateVote { output_ref } -> {
       let unique_name = unique_cip68_asset_name(output_ref)
-      create_vote(policy_id, unique_name, ctx, dao_datum)
+      create_vote(policy_id, unique_name, tx, dao_datum)
     }
-    EmptyVote -> empty_vote_mint(ctx, policy_id, dao_datum)
+    EmptyVote -> empty_vote_mint(tx, policy_id, dao_datum)
     _ -> fail @"Wrong redeemer type"
   }
 }
 
-fn same_plus_minted(ctx: ScriptContext, output_ref: OutputReference) -> Bool {
-  expect Some(vote_input) = find_input(ctx.transaction.inputs, output_ref)
-  expect Address(ScriptCredential(policy_id), _) = vote_input.output.address
-  expect [vote_output] = find_script_outputs(ctx.transaction.outputs, policy_id)
+fn same_plus_minted(tx: Transaction, output_ref: OutputReference) -> Bool {
+  expect Some(vote_input) = find_input(tx.inputs, output_ref)
+  expect Address { payment_credential: Script(policy_id), .. } =
+    vote_input.output.address
+  expect [vote_output] = find_script_outputs(tx.outputs, policy_id)
   and {
     (vote_input.output.address == vote_output.address)?,
     (vote_input.output.datum == vote_output.datum)?,
-    (merge(vote_input.output.value, ctx.transaction.mint |> from_minted_value()) == vote_output.value)?,
+    (merge(vote_input.output.value, tx.mint) == vote_output.value)?,
   }
 }
 
-fn empty_vote(ctx: ScriptContext, output_ref: OutputReference) -> Bool {
-  expect Some(vote_input) = find_input(ctx.transaction.inputs, output_ref)
-  expect Address(ScriptCredential(policy_id), _) = vote_input.output.address
+fn empty_vote(tx: Transaction, output_ref: OutputReference) -> Bool {
+  expect Some(vote_input) = find_input(tx.inputs, output_ref)
+  expect Address { payment_credential: Script(policy_id), .. } =
+    vote_input.output.address
   expect [reference_nft] =
     vote_input.output.value |> tokens(policy_id) |> to_pairs()
   let minted_tokens =
-    ctx.transaction.mint
-      |> from_minted_value()
+    tx.mint
       |> quantity_of(policy_id, reference_nft.1st)
   reference_nft.2nd * -1 == minted_tokens
 }
@@ -202,13 +202,13 @@ fn empty_vote(ctx: ScriptContext, output_ref: OutputReference) -> Bool {
 pub fn spend(
   _datum: VoteDatum,
   redeemer: VoteRedeemer,
-  ctx: ScriptContext,
+  tx: Transaction,
+  output_ref: OutputReference,
 ) -> Bool {
-  expect Spend(output_ref) = ctx.purpose
   when redeemer is {
-    CastVote -> same_plus_minted(ctx, output_ref)
-    CleanReceipts -> same_plus_minted(ctx, output_ref)
-    EmptyVote -> empty_vote(ctx, output_ref)
+    CastVote -> same_plus_minted(tx, output_ref)
+    CleanReceipts -> same_plus_minted(tx, output_ref)
+    EmptyVote -> empty_vote(tx, output_ref)
     _ -> fail @"Wrong redeemer type"
   }
 }

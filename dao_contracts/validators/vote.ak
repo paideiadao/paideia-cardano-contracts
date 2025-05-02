@@ -1,17 +1,23 @@
-use aiken/transaction.{ScriptContext}
-use aiken/transaction/value.{AssetName, PolicyId}
-use dao_contracts/vote
+use cardano/assets.{AssetName, PolicyId}
+use cardano/transaction.{OutputReference, Transaction}
+use dao_contracts/vote as vote_lib
 
-validator(dao_policy_id: PolicyId, dao_key: AssetName) {
-  fn spend(
-    datum: vote.VoteDatum,
-    redeemer: vote.VoteRedeemer,
-    script_context: ScriptContext,
+validator vote(dao_policy_id: PolicyId, dao_key: AssetName) {
+  spend(
+    datum_opt: Option<vote_lib.VoteDatum>,
+    redeemer: vote_lib.VoteRedeemer,
+    utxo: OutputReference,
+    self: Transaction,
   ) {
-    vote.spend(datum, redeemer, script_context)
+    expect Some(datum) = datum_opt
+    vote_lib.spend(datum, redeemer, self, utxo)
   }
 
-  fn mint(redeemer: vote.VoteRedeemer, script_context: ScriptContext) {
-    vote.mint(redeemer, script_context, dao_policy_id, dao_key)
+  mint(redeemer: vote_lib.VoteRedeemer, policy_id: PolicyId, self: Transaction) {
+    vote_lib.mint(policy_id, redeemer, self, dao_policy_id, dao_key)
+  }
+
+  else(_) {
+    fail
   }
 }

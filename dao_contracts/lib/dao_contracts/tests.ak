@@ -1,13 +1,10 @@
-use aiken/bytearray.{concat, drop, take}
 use aiken/interval.{Finite, Interval, IntervalBound}
-use aiken/transaction.{
-  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, ScriptContext,
-  Spend, Transaction, TransactionId, placeholder,
+use aiken/primitive/bytearray.{concat, drop, take}
+use cardano/address.{Address, Script, VerificationKey}
+use cardano/assets.{add, from_asset, from_lovelace}
+use cardano/transaction.{
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, placeholder,
 }
-use aiken/transaction/credential.{
-  Address, ScriptCredential, VerificationKeyCredential,
-}
-use aiken/transaction/value.{add, from_asset, from_lovelace, to_minted_value}
 use dao_contracts/dao.{CreateDAO, DAODatum, unique_dao_identifier}
 use dao_contracts/proposal.{
   Active, CreateProposal, Passed, ProposalDatum, get_proposal_identifier,
@@ -23,9 +20,7 @@ pub const test_dao_policy_id =
 
 pub fn test_dao_output_ref() -> OutputReference {
   OutputReference {
-    transaction_id: TransactionId(
-      #"0000000000000000000000010000000000000000000000000001000000000000",
-    ),
+    transaction_id: #"0000000000000000000000010000000000000000000000000001000000000000",
     output_index: 666,
   }
 }
@@ -49,9 +44,13 @@ pub fn test_dao_datum() -> DAODatum {
 
 pub fn test_dao_output() -> Output {
   Output {
-    address: Address(ScriptCredential(test_dao_policy_id), None),
+    address: Address(Script(test_dao_policy_id), None),
     value: from_lovelace(2_000_000)
-      |> add(test_dao_policy_id, unique_dao_identifier(test_user_output_ref()), 1),
+      |> add(
+          test_dao_policy_id,
+          unique_dao_identifier(test_user_output_ref()),
+          1,
+        ),
     datum: InlineDatum(test_dao_datum()),
     reference_script: None,
   }
@@ -62,7 +61,7 @@ pub const test_user_key =
 
 pub fn test_user_output() -> Output {
   Output {
-    address: Address(VerificationKeyCredential(test_user_key), None),
+    address: Address(VerificationKey(test_user_key), None),
     value: from_lovelace(100_000_000),
     datum: NoDatum,
     reference_script: None,
@@ -71,9 +70,7 @@ pub fn test_user_output() -> Output {
 
 pub fn test_user_output_ref() -> OutputReference {
   OutputReference {
-    transaction_id: TransactionId(
-      #"0000000000000000000000010000000000000000000000000001000000000000",
-    ),
+    transaction_id: #"0000000000000000000000010000000000000000000000000001000000000000",
     output_index: 123,
   }
 }
@@ -87,26 +84,21 @@ pub fn test_dao_input() -> Input {
 }
 
 test dao_mint_create_dao() {
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_dao_policy_id),
-      transaction: Transaction {
-        ..placeholder(),
-        inputs: [test_user_input()],
-        outputs: [test_dao_output()],
-        mint: to_minted_value(
-          from_asset(
-            test_dao_policy_id,
-            unique_dao_identifier(test_user_output_ref()),
-            1,
-          ),
-        ),
-      },
+  let tx =
+    Transaction {
+      ..placeholder,
+      inputs: [test_user_input()],
+      outputs: [test_dao_output()],
+      mint: from_asset(
+        test_dao_policy_id,
+        unique_dao_identifier(test_user_output_ref()),
+        1,
+      ),
     }
 
   let redeemer = CreateDAO(test_user_output_ref())
 
-  dao.mint(redeemer, ctx)
+  dao.mint(test_dao_policy_id, redeemer, tx)
 }
 
 pub const test_vote_policy_id =
@@ -114,7 +106,7 @@ pub const test_vote_policy_id =
 
 pub fn test_vote_output() -> Output {
   Output {
-    address: Address(ScriptCredential(test_vote_policy_id), None),
+    address: Address(Script(test_vote_policy_id), None),
     value: from_lovelace(2_000_000)
       |> add(
           test_vote_policy_id,
@@ -132,9 +124,7 @@ pub fn test_vote_output() -> Output {
 
 pub fn test_vote_output_ref() -> OutputReference {
   OutputReference {
-    transaction_id: TransactionId(
-      #"0000000000000000000000010000000000000000000000000001000000000000",
-    ),
+    transaction_id: #"0000000000000000000000010000000000000000000000000001000000000000",
     output_index: 321,
   }
 }
@@ -157,26 +147,22 @@ test vote_mint_create_vote() {
         |> add(test_vote_policy_id, concat(nft_prefix, vote_key), 1),
     }
 
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_vote_policy_id),
-      transaction: Transaction {
-        ..placeholder(),
-        inputs: [test_user_input()],
-        reference_inputs: [test_dao_input()],
-        outputs: [test_vote_output(), user_output],
-        mint: to_minted_value(
-          from_asset(test_vote_policy_id, concat(nft_prefix, vote_key), 1)
-            |> add(test_vote_policy_id, concat(reference_prefix, vote_key), 1),
-        ),
-      },
+  let tx =
+    Transaction {
+      ..placeholder,
+      inputs: [test_user_input()],
+      reference_inputs: [test_dao_input()],
+      outputs: [test_vote_output(), user_output],
+      mint: from_asset(test_vote_policy_id, concat(nft_prefix, vote_key), 1)
+        |> add(test_vote_policy_id, concat(reference_prefix, vote_key), 1),
     }
 
   let redeemer = CreateVote(test_user_output_ref())
 
   vote.mint(
+    test_vote_policy_id,
     redeemer,
-    ctx,
+    tx,
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
   )
@@ -186,44 +172,36 @@ fn empty_vote_tx() -> Transaction {
   let vote_key = unique_cip68_asset_name(test_user_output_ref())
 
   Transaction {
-    ..placeholder(),
+    ..placeholder,
     inputs: [test_vote_input()],
     reference_inputs: [test_dao_input()],
     outputs: [],
-    mint: to_minted_value(
-      from_asset(test_vote_policy_id, concat(nft_prefix, vote_key), -1)
-        |> add(test_vote_policy_id, concat(reference_prefix, vote_key), -1),
-    ),
+    mint: from_asset(test_vote_policy_id, concat(nft_prefix, vote_key), -1)
+      |> add(test_vote_policy_id, concat(reference_prefix, vote_key), -1),
   }
 }
 
 test vote_mint_empty_vote() {
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_vote_policy_id),
-      transaction: empty_vote_tx(),
-    }
-
   let redeemer = EmptyVote
 
   vote.mint(
+    test_vote_policy_id,
     redeemer,
-    ctx,
+    empty_vote_tx(),
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
   )
 }
 
 test vote_spend_empty_vote() {
-  let ctx =
-    ScriptContext {
-      purpose: Spend(test_vote_output_ref()),
-      transaction: empty_vote_tx(),
-    }
-
   let redeemer = EmptyVote
 
-  vote.spend(test_vote_datum(), redeemer, ctx)
+  vote.spend(
+    test_vote_datum(),
+    redeemer,
+    empty_vote_tx(),
+    test_vote_output_ref(),
+  )
 }
 
 pub const test_proposal_policy_id =
@@ -242,7 +220,7 @@ pub fn test_proposal_datum() -> ProposalDatum {
 
 pub fn test_proposal_output() -> Output {
   Output {
-    address: Address(ScriptCredential(test_proposal_policy_id), None),
+    address: Address(Script(test_proposal_policy_id), None),
     value: from_lovelace(2_000_000)
       |> add(
           test_proposal_policy_id,
@@ -256,9 +234,7 @@ pub fn test_proposal_output() -> Output {
 
 pub fn test_proposal_output_ref() -> OutputReference {
   OutputReference {
-    transaction_id: TransactionId(
-      #"0000000000000000000000010000000000000000000000000001000000000000",
-    ),
+    transaction_id: #"0000000000000000000000010000000000000000000000000001000000000000",
     output_index: 111,
   }
 }
@@ -272,33 +248,29 @@ pub fn test_proposal_input() -> Input {
 
 test proposal_mint_create_proposal() {
   let vote_key = unique_cip68_asset_name(test_user_output_ref())
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_proposal_policy_id),
-      transaction: Transaction {
-        ..placeholder(),
-        inputs: [test_user_input()],
-        reference_inputs: [test_dao_input(), test_vote_input()],
-        outputs: [test_proposal_output()],
-        validity_range: Interval(
-          IntervalBound(Finite(0), True),
-          IntervalBound(Finite(1000), True),
-        ),
-        mint: to_minted_value(
-          from_asset(
-            test_proposal_policy_id,
-            get_proposal_identifier(test_proposal_datum().identifier),
-            1,
-          ),
-        ),
-      },
+  let tx =
+    Transaction {
+      ..placeholder,
+      inputs: [test_user_input()],
+      reference_inputs: [test_dao_input(), test_vote_input()],
+      outputs: [test_proposal_output()],
+      validity_range: Interval(
+        IntervalBound(Finite(0), True),
+        IntervalBound(Finite(1000), True),
+      ),
+      mint: from_asset(
+        test_proposal_policy_id,
+        get_proposal_identifier(test_proposal_datum().identifier),
+        1,
+      ),
     }
 
   let redeemer = CreateProposal(vote_key)
 
   proposal.mint(
+    test_proposal_policy_id,
     redeemer,
-    ctx,
+    tx,
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
     test_vote_policy_id,
@@ -328,12 +300,11 @@ fn cast_vote_tx() -> Transaction {
     }
 
   Transaction {
-    ..placeholder(),
+    ..placeholder,
     inputs: [test_proposal_input(), test_vote_input()],
     reference_inputs: [test_dao_input()],
     outputs: [proposal_output, vote_output],
-    mint: from_asset(test_proposal_policy_id, vote_receipt, 100)
-      |> to_minted_value(),
+    mint: from_asset(test_proposal_policy_id, vote_receipt, 100),
     validity_range: Interval(
       IntervalBound(Finite(1000), True),
       IntervalBound(Finite(1001), True),
@@ -342,17 +313,12 @@ fn cast_vote_tx() -> Transaction {
 }
 
 test proposal_mint_cast_vote() {
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_proposal_policy_id),
-      transaction: cast_vote_tx(),
-    }
-
   let redeemer = proposal.CastVote
 
   proposal.mint(
+    test_proposal_policy_id,
     redeemer,
-    ctx,
+    cast_vote_tx(),
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
     test_vote_policy_id,
@@ -360,33 +326,27 @@ test proposal_mint_cast_vote() {
 }
 
 test proposal_spend_cast_vote() {
-  let ctx =
-    ScriptContext {
-      purpose: Spend(test_proposal_output_ref()),
-      transaction: cast_vote_tx(),
-    }
-
   let redeemer = proposal.CastVote
 
   proposal.spend(
     to_proposal_datum(test_proposal_input().output.datum),
     redeemer,
-    ctx,
+    cast_vote_tx(),
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
+    test_proposal_output_ref(),
   )
 }
 
 test vote_spend_cast_vote() {
-  let ctx =
-    ScriptContext {
-      purpose: Spend(test_vote_output_ref()),
-      transaction: cast_vote_tx(),
-    }
-
   let redeemer = vote.CastVote
 
-  vote.spend(test_vote_datum(), redeemer, ctx)
+  vote.spend(
+    test_vote_datum(),
+    redeemer,
+    cast_vote_tx(),
+    test_vote_output_ref(),
+  )
 }
 
 fn clean_receipts_tx() -> Transaction {
@@ -421,12 +381,11 @@ fn clean_receipts_tx() -> Transaction {
   let vote_input =
     Input { output: vote_output, output_reference: test_dao_output_ref() }
   Transaction {
-    ..placeholder(),
+    ..placeholder,
     inputs: [vote_input],
     reference_inputs: [proposal_input, test_dao_input()],
     outputs: [test_vote_output()],
-    mint: from_asset(test_proposal_policy_id, vote_receipt, -100)
-      |> to_minted_value(),
+    mint: from_asset(test_proposal_policy_id, vote_receipt, -100),
     validity_range: Interval(
       IntervalBound(Finite(5000), True),
       IntervalBound(Finite(5001), True),
@@ -435,17 +394,12 @@ fn clean_receipts_tx() -> Transaction {
 }
 
 test proposal_mint_clean_receipts() {
-  let ctx =
-    ScriptContext {
-      purpose: Mint(test_proposal_policy_id),
-      transaction: clean_receipts_tx(),
-    }
-
   let redeemer = proposal.CleanReceipts
 
   proposal.mint(
+    test_proposal_policy_id,
     redeemer,
-    ctx,
+    clean_receipts_tx(),
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
     test_vote_policy_id,
@@ -453,15 +407,14 @@ test proposal_mint_clean_receipts() {
 }
 
 test vote_spend_clean_receipts() {
-  let ctx =
-    ScriptContext {
-      purpose: Spend(test_dao_output_ref()),
-      transaction: clean_receipts_tx(),
-    }
-
   let redeemer = vote.CleanReceipts
 
-  vote.spend(test_vote_datum(), redeemer, ctx)
+  vote.spend(
+    test_vote_datum(),
+    redeemer,
+    clean_receipts_tx(),
+    test_dao_output_ref(),
+  )
 }
 
 test proposal_spend_evaluate_proposal() {
@@ -474,19 +427,16 @@ test proposal_spend_evaluate_proposal() {
       datum: InlineDatum(proposal_output_datum),
     }
 
-  let ctx =
-    ScriptContext {
-      purpose: Spend(test_proposal_output_ref()),
-      transaction: Transaction {
-        ..placeholder(),
-        inputs: [test_proposal_input()],
-        reference_inputs: [test_dao_input()],
-        outputs: [proposal_output],
-        validity_range: Interval(
-          IntervalBound(Finite(5000), True),
-          IntervalBound(Finite(5001), True),
-        ),
-      },
+  let tx =
+    Transaction {
+      ..placeholder,
+      inputs: [test_proposal_input()],
+      reference_inputs: [test_dao_input()],
+      outputs: [proposal_output],
+      validity_range: Interval(
+        IntervalBound(Finite(5000), True),
+        IntervalBound(Finite(5001), True),
+      ),
     }
 
   let redeemer = proposal.EvaluateProposal
@@ -494,8 +444,9 @@ test proposal_spend_evaluate_proposal() {
   proposal.spend(
     test_proposal_datum(),
     redeemer,
-    ctx,
+    tx,
     test_dao_policy_id,
     unique_dao_identifier(test_user_output_ref()),
+    test_proposal_output_ref(),
   )
 }

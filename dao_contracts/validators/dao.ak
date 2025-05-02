@@ -1,12 +1,22 @@
-use aiken/transaction.{ScriptContext}
-use dao_contracts/dao
+use cardano/assets.{PolicyId}
+use cardano/transaction.{OutputReference, Transaction}
+use dao_contracts/dao as dao_lib
 
-validator {
-  fn spend(_datum: Data, _redeemer: Data, _script_context: Data) {
-    dao.spend()
+validator dao {
+  spend(
+    _datum: Option<Data>,
+    _redeemer: Data,
+    _utxo: OutputReference,
+    _self: Transaction,
+  ) {
+    dao_lib.spend()
   }
 
-  fn mint(redeemer: dao.DAORedeemer, script_context: ScriptContext) {
-    dao.mint(redeemer, script_context)
+  mint(redeemer: dao_lib.DAORedeemer, policy_id: PolicyId, self: Transaction) {
+    dao_lib.mint(policy_id, redeemer, self)
+  }
+
+  else(_) {
+    fail
   }
 }
