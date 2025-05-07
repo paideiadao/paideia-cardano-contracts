@@ -16,6 +16,7 @@ use cardano/transaction.{
   find_script_outputs,
 }
 use dao_contracts/dao.{DAODatum, get_dao_datum_from_reference}
+use dao_contracts/utils.{after_time}
 use dao_contracts/vote.{get_vote_reference}
 
 pub type ProposalStatus {
@@ -359,18 +360,10 @@ fn utxo_unchanged_except_status(
   let input_without_status = ProposalDatum { ..input_datum, status: Active }
   let output_without_status = ProposalDatum { ..output_datum, status: Active }
   and {
-    input.address == output.address,
-    input.value == output.value,
-    input_without_status == output_without_status,
+    (input.address == output.address)?,
+    (input.value == output.value)?,
+    (input_without_status == output_without_status)?,
   }
-}
-
-fn after_end_time(tx: Transaction, proposal_datum: ProposalDatum) -> Bool {
-  expect Interval {
-    lower_bound: IntervalBound { bound_type: Finite(tx_time), .. },
-    ..
-  } = tx.validity_range
-  tx_time > proposal_datum.end_time
 }
 
 fn not_evaluated_yet(datum: ProposalDatum) -> Bool {
@@ -415,7 +408,7 @@ fn evaluate_proposal(
   expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)
   and {
     utxo_unchanged_except_status(proposal_input.output, datum, proposal_output)?,
-    after_end_time(tx, datum)?,
+    after_time(tx, datum.end_time)?,
     not_evaluated_yet(datum)?,
     correct_winner(dao_datum, proposal_output)?,
   }

@@ -3,18 +3,19 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/crypto.{blake2b_256}
 use cardano/address.{Address, Script}
-use cardano/assets.{AssetName, PolicyId, Value}
+use cardano/assets.{AssetName, PolicyId}
 use cardano/transaction.{
   Datum, InlineDatum, Output, OutputReference, Transaction, find_input,
   find_script_outputs,
 }
 use dao_contracts/dao.{get_dao_datum_from_reference}
 use dao_contracts/proposal.{get_proposal_identifier}
-use dao_contracts/utils.{find_input_by_identifier}
+use dao_contracts/utils.{after_time, find_input_by_identifier}
 
 pub type Target {
   address: Address,
-  value: Value,
+  coins: Int,
+  tokens: Pairs<PolicyId, Pairs<AssetName, Int>>,
   datum: Datum,
 }
 
@@ -51,7 +52,10 @@ pub fn mint(
 ) {
   let dao_datum = get_dao_datum_from_reference(tx, dao_policy_id, dao_key)
   when redeemer is {
-    CreateAction { proposal_policy_id, proposal_identifier } -> and {
+    CreateAction { proposal_policy_id, proposal_identifier } -> {
+      expect Some(_output_ref_present) =
+        find_input(tx.inputs, proposal_identifier)
+      and {
         single_identifier_minted_into_each_action(
           tx,
           policy_id,
@@ -63,6 +67,7 @@ pub fn mint(
           proposal_policy_id,
         )?,
       }
+    }
     Execute -> only_burned_action_tokens(tx, policy_id)?
   }
 }
@@ -96,7 +101,6 @@ fn single_identifier_minted_into_each_action(
   proposal_policy_id: PolicyId,
   proposal_identifier: OutputReference,
 ) -> Bool {
-  expect Some(_output_ref_present) = find_input(tx.inputs, proposal_identifier)
   let proposal_identifier_hash = get_proposal_identifier(proposal_identifier)
   let minted_action_identifiers =
     tx.mint |> assets.tokens(policy_id) |> dict.to_pairs()
@@ -110,6 +114,10 @@ fn single_identifier_minted_into_each_action(
                   fn(output: Output) {
                     expect InlineDatum(datum) = output.datum
                     expect action_datum: ActionSendFundsDatum = datum
+                    // By enforcing the action_index to be greater than 0,
+                    // we ensure that there is always a proposal option that has no action
+                    // associated with it.
+                    expect action_datum.option > 0
                     minted_action_identifier.1st == get_action_identifier(
                       proposal_policy_id,
                       proposal_identifier_hash,
@@ -161,6 +169,7 @@ pub fn spend(
     targets_present(datum.targets, tx.outputs)?,
     only_targets_and_treasury_outputs(datum.treasury, tx.outputs, datum.targets)?,
     action_token_burned(action_policy_id, tx.outputs)?,
+    after_time(tx, datum.activation_time)?,
   }
 }
 
@@ -171,7 +180,11 @@ fn proposal_present_and_passed(
   tx: Transaction,
 ) -> Bool {
   expect Some(proposal_reference_input) =
-    find_input_by_identifier(tx.inputs, proposal_policy_id, proposal_identifier)
+    find_input_by_identifier(
+      tx.reference_inputs,
+      proposal_policy_id,
+      proposal_identifier,
+    )
   expect InlineDatum(proposal_data) = proposal_reference_input.output.datum
   expect proposal_datum: proposal.ProposalDatum = proposal_data
   expect proposal.Passed(passed_option) = proposal_datum.status
@@ -186,9 +199,12 @@ fn targets_present(targets: List<Target>, outputs: List<Output>) -> Bool {
             |> list.any(
                 fn(output: Output) {
                   and {
-                    (output.address == target.address)?,
-                    (output.value == target.value)?,
-                    (output.datum == target.datum)?,
+                    output.address == target.address,
+                    output.value == (
+                      assets.from_lovelace(target.coins)
+                        |> assets.merge(assets.from_asset_list(target.tokens))
+                    ),
+                    output.datum == target.datum,
                   }
                 },
               )

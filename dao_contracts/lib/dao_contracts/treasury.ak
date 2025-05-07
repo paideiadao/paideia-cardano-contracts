@@ -7,7 +7,7 @@ use dao_contracts/dao.{DAODatum, get_dao_datum_from_reference}
 
 pub fn spend(tx: Transaction, dao_policy_id: PolicyId, dao_key: AssetName) {
   let dao_datum = get_dao_datum_from_reference(tx, dao_policy_id, dao_key)
-  single_action_present(tx, dao_datum)
+  single_action_present(tx, dao_datum)?
 }
 
 fn single_action_present(tx: Transaction, dao_datum: DAODatum) -> Bool {
