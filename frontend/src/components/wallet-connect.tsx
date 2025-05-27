@@ -17,6 +17,7 @@ export function WalletConnect() {
     useWallet();
   const wallets = useWalletList();
   const [mounted, setMounted] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string>("");
 
   useEffect(() => {
     setMounted(true);
@@ -27,6 +28,23 @@ export function WalletConnect() {
     }
   }, [connect, connected, connecting]);
 
+  useEffect(() => {
+    const getAddress = async () => {
+      if (connected && wallet) {
+        try {
+          const changeAddress = await wallet.getChangeAddress();
+          setWalletAddress(changeAddress);
+        } catch (error) {
+          console.error("Failed to get wallet address:", error);
+        }
+      } else {
+        setWalletAddress("");
+      }
+    };
+
+    getAddress();
+  }, [connected, wallet]);
+
   const handleConnect = (walletName: string) => {
     localStorage.setItem(WALLET_STORAGE_KEY, walletName);
     connect(walletName);
@@ -35,6 +53,16 @@ export function WalletConnect() {
   const handleDisconnect = () => {
     localStorage.removeItem(WALLET_STORAGE_KEY);
     disconnect();
+  };
+
+  const formatAddress = (address: string) => {
+    if (address.length <= 12) return address;
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  const getWalletIcon = () => {
+    const walletInfo = wallets.find((w) => w.name === name);
+    return walletInfo?.icon;
   };
 
   if (!mounted) {
@@ -47,12 +75,22 @@ export function WalletConnect() {
   }
 
   if (connected && wallet) {
+    const walletIcon = getWalletIcon();
+
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline">
-            <Wallet className="mr-1 h-4 w-4" />
-            {name}
+            {walletIcon ? (
+              <img
+                src={walletIcon}
+                alt={name ?? "Wallet"}
+                className="mr-1 h-4 w-4"
+              />
+            ) : (
+              <Wallet className="mr-1 h-4 w-4" />
+            )}
+            {walletAddress ? formatAddress(walletAddress) : "Loading..."}
             <ChevronDown className="ml-1 h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>

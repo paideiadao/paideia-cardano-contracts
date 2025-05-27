@@ -11,6 +11,8 @@
   "dependencies": {
     "@blaze-cardano/core": "^0.6.4",
     "@blaze-cardano/query": "^0.4.3",
+    "@blaze-cardano/sdk": "^0.2.30",
+    "@blaze-cardano/uplc": "^0.3.1",
     "@meshsdk/core": "1.9.0-beta.53",
     "@meshsdk/react": "1.9.0-beta.53",
     "@radix-ui/react-dropdown-menu": "^2.1.15",
