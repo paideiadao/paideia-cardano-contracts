@@ -1,0 +1,12 @@
+{
+  "name": "paideia-cardano-contracts",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "build:contracts": "cd dao_contracts && aiken build",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "build:all": "pnpm build:contracts && cd frontend && pnpm build"
+  }
+}
