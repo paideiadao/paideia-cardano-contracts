@@ -13,8 +13,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2 } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
 
 export interface TokenFormData {
   name: string;
@@ -67,7 +73,6 @@ export function TokenMintForm() {
     try {
       console.log("=== Starting CIP-68 Token Mint ===");
 
-      // Get wallet data
       const usedAddresses = await wallet.getUsedAddresses();
       const address = usedAddresses[0];
       const utxos = await wallet.getUtxos();
@@ -112,14 +117,8 @@ export function TokenMintForm() {
       setSuccess(
         `CIP-68 token minted successfully! Transaction hash: ${txHash}`
       );
-
-      console.log("✓ Transaction submitted:", txHash);
-      setSuccess(
-        `CIP-68 token minted successfully! Transaction hash: ${txHash}`
-      );
     } catch (err: any) {
       console.error("❌ Full error object:", JSON.stringify(err, null, 2));
-      // console.error("❌ Error info:", err?.info);
       setError(err instanceof Error ? err.message : "Failed to mint token");
     } finally {
       setIsLoading(false);
@@ -127,138 +126,242 @@ export function TokenMintForm() {
   };
 
   return (
-    <Card className="max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle>Create Governance Token</CardTitle>
-        <CardDescription>
-          Create a CIP-68 compliant fungible token for DAO governance
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="name">Token Name</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => handleInputChange("name", e.target.value)}
-                placeholder="My DAO Token"
-                required
-              />
+    <div className="max-w-2xl mx-auto space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            Create Governance Token
+            <Info className="h-4 w-4 text-muted-foreground" />
+          </CardTitle>
+          <CardDescription>
+            Create a CIP-68 compliant fungible token for DAO governance with
+            immutable metadata
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="single" collapsible className="mb-6">
+            <AccordionItem value="token-info">
+              <AccordionTrigger>What tokens will be created?</AccordionTrigger>
+              <AccordionContent className="space-y-4">
+                <div className="space-y-3">
+                  <div className="border-l-4 border-blue-500 pl-4">
+                    <h4 className="font-semibold text-blue-700">
+                      Governance Token ({formData.symbol || "SYMBOL"})
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Fungible tokens (CIP-68 label 333) used for voting in your
+                      DAO. These will be distributed to your community for
+                      governance participation.
+                    </p>
+                  </div>
+
+                  <div className="border-l-4 border-purple-500 pl-4">
+                    <h4 className="font-semibold text-purple-700">
+                      Minting Authority (AUTH_{formData.symbol || "SYMBOL"})
+                    </h4>
+                    <p className="text-sm text-muted-foreground">
+                      Authority NFT (CIP-68 label 222) that allows future
+                      minting of governance tokens. Keep this secure - it
+                      controls the token supply.
+                    </p>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="metadata-info">
+              <AccordionTrigger>
+                How does CIP-68 metadata work?
+              </AccordionTrigger>
+              <AccordionContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Each token type gets a <strong>reference NFT</strong> that
+                  stores its metadata on-chain:
+                </p>
+                <ul className="text-sm text-muted-foreground space-y-2 ml-4">
+                  <li>
+                    • <strong>Reference NFTs are burned</strong> - making
+                    metadata permanently immutable
+                  </li>
+                  <li>
+                    • <strong>No central server dependency</strong> - metadata
+                    lives on Cardano forever
+                  </li>
+                  <li>
+                    • <strong>Governance stability</strong> - token properties
+                    cannot be changed mid-vote
+                  </li>
+                  <li>
+                    • <strong>Full CIP-68 compliance</strong> - works with all
+                    compatible wallets and dApps
+                  </li>
+                </ul>
+
+                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded border">
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    💡 Future Enhancement: The DAO could vote to update metadata
+                    by storing reference NFTs in a governance script instead of
+                    burning them.
+                  </p>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            <AccordionItem value="supply-info">
+              <AccordionTrigger>Can I mint more tokens later?</AccordionTrigger>
+              <AccordionContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Yes! The Authority NFT allows you to mint additional
+                  governance tokens:
+                </p>
+                <ul className="text-sm text-muted-foreground space-y-1 ml-4">
+                  <li>
+                    • Hold the AUTH_{formData.symbol || "SYMBOL"} NFT in your
+                    wallet
+                  </li>
+                  <li>• Use it to authorize future minting transactions</li>
+                  <li>
+                    • Consider multi-sig or DAO-controlled minting for
+                    decentralization
+                  </li>
+                </ul>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Token Name</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                  placeholder="My DAO Token"
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="symbol">Symbol (Ticker)</Label>
+                <Input
+                  id="symbol"
+                  value={formData.symbol}
+                  onChange={(e) =>
+                    handleInputChange("symbol", e.target.value.toUpperCase())
+                  }
+                  placeholder="MYDAO"
+                  maxLength={8}
+                  required
+                />
+              </div>
             </div>
+
             <div>
-              <Label htmlFor="symbol">Symbol (Ticker)</Label>
-              <Input
-                id="symbol"
-                value={formData.symbol}
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
                 onChange={(e) =>
-                  handleInputChange("symbol", e.target.value.toUpperCase())
+                  handleInputChange("description", e.target.value)
                 }
-                placeholder="MYDAO"
-                maxLength={8}
+                placeholder="Governance token for My DAO"
                 required
               />
             </div>
-          </div>
 
-          <div>
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => handleInputChange("description", e.target.value)}
-              placeholder="Governance token for My DAO"
-              required
-            />
-          </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="supply">Initial Supply</Label>
+                <Input
+                  id="supply"
+                  type="number"
+                  value={formData.supply}
+                  onChange={(e) =>
+                    handleInputChange("supply", parseInt(e.target.value) || 0)
+                  }
+                  min={1}
+                  required
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Can mint more later with authority NFT
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="decimals">Decimals</Label>
+                <Input
+                  id="decimals"
+                  type="number"
+                  value={formData.decimals}
+                  onChange={(e) =>
+                    handleInputChange("decimals", parseInt(e.target.value) || 0)
+                  }
+                  min={0}
+                  max={18}
+                  required
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="supply">Total Supply</Label>
+              <Label htmlFor="url">Project URL (Optional)</Label>
               <Input
-                id="supply"
-                type="number"
-                value={formData.supply}
-                onChange={(e) =>
-                  handleInputChange("supply", parseInt(e.target.value) || 0)
-                }
-                min={1}
-                required
+                id="url"
+                type="url"
+                value={formData.url}
+                onChange={(e) => handleInputChange("url", e.target.value)}
+                placeholder="https://mydao.org"
               />
             </div>
+
             <div>
-              <Label htmlFor="decimals">Decimals</Label>
+              <Label htmlFor="logo">Logo URL (Optional)</Label>
               <Input
-                id="decimals"
-                type="number"
-                value={formData.decimals}
-                onChange={(e) =>
-                  handleInputChange("decimals", parseInt(e.target.value) || 0)
-                }
-                min={0}
-                max={18}
-                required
+                id="logo"
+                type="url"
+                value={formData.logo}
+                onChange={(e) => handleInputChange("logo", e.target.value)}
+                placeholder="https://mydao.org/logo.png or ipfs://..."
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Supports HTTPS and IPFS URLs
+              </p>
             </div>
-          </div>
 
-          <div>
-            <Label htmlFor="url">Project URL (Optional)</Label>
-            <Input
-              id="url"
-              type="url"
-              value={formData.url}
-              onChange={(e) => handleInputChange("url", e.target.value)}
-              placeholder="https://mydao.org"
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="logo">Logo URL (Optional)</Label>
-            <Input
-              id="logo"
-              type="url"
-              value={formData.logo}
-              onChange={(e) => handleInputChange("logo", e.target.value)}
-              placeholder="https://mydao.org/logo.png"
-            />
-          </div>
-
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert>
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
-
-          <Button
-            type="submit"
-            disabled={!connected || isLoading}
-            className="w-full"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Minting Token...
-              </>
-            ) : (
-              "Mint Governance Token"
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
-          </Button>
 
-          {!connected && (
-            <p className="text-sm text-muted-foreground text-center">
-              Please connect your wallet to mint tokens
-            </p>
-          )}
-        </form>
-      </CardContent>
-    </Card>
+            {success && (
+              <Alert>
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              type="submit"
+              disabled={!connected || isLoading}
+              className="w-full"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating CIP-68 Tokens...
+                </>
+              ) : (
+                "Create Governance Token & Authority NFT"
+              )}
+            </Button>
+
+            {!connected && (
+              <p className="text-sm text-muted-foreground text-center">
+                Please connect your wallet to mint tokens
+              </p>
+            )}
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
