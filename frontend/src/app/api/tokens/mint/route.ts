@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     const tokenNameHex = stringToHex(tokenName);
     const authTokenNameHex = stringToHex("AUTH_" + formData.symbol);
 
-    console.debug(`🏷️  Token name hex: ${tokenNameHex}`);
+    console.debug(`🏷️ Token name hex: ${tokenNameHex}`);
     console.debug(`🔐 Auth token name hex: ${authTokenNameHex}`);
 
     // Create CIP-68 metadata
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       ...(formData.logo && { logo: formData.logo }),
     };
     const authNftMetadata: Cip68NftMetadata = {
-      name: `${formData.name} Minting Authority`,
+      name: `AUTH_${formData.symbol}`,
       image: formData.logo ?? "", // Use logo as image for auth NFT
       description: `Minting authority token for ${formData.name} (${formData.symbol})`,
     };
@@ -69,6 +69,8 @@ export async function POST(request: NextRequest) {
       generateCip67Label(CIP68_LABELS.REFERENCE_NFT) + tokenNameHex; // 100
     const fungibleAssetName =
       generateCip67Label(CIP68_LABELS.FUNGIBLE_TOKEN) + tokenNameHex; // 333
+    const authReferenceAssetName =
+      generateCip67Label(CIP68_LABELS.REFERENCE_NFT) + authTokenNameHex; // 100
     const authTokenAssetName =
       generateCip67Label(CIP68_LABELS.NFT) + authTokenNameHex; // 222
 
@@ -195,6 +197,7 @@ export async function POST(request: NextRequest) {
 
     // Create mint maps
     const authMintMap: Map<Core.AssetName, bigint> = new Map();
+    authMintMap.set(Core.AssetName(authReferenceAssetName), 1n);
     authMintMap.set(Core.AssetName(authTokenAssetName), 1n);
 
     const tokenMintMap: Map<Core.AssetName, bigint> = new Map();
@@ -230,31 +233,44 @@ export async function POST(request: NextRequest) {
       ]),
     });
 
-    const authNftValue = Core.Value.fromCore({
+    const authReferenceNftValue = Core.Value.fromCore({
       coins: 0n,
       assets: new Map([
         [
           Core.AssetId.fromParts(
             Core.PolicyId(authPolicyId),
-            Core.AssetName(authTokenAssetName)
+            Core.AssetName(authReferenceAssetName)
           ),
           1n,
         ],
       ]),
     });
 
-    const fungibleValue = Core.Value.fromCore({
-      coins: 0n,
-      assets: new Map([
-        [
-          Core.AssetId.fromParts(
-            Core.PolicyId(tokenPolicyId),
-            Core.AssetName(fungibleAssetName)
-          ),
-          BigInt(formData.supply),
-        ],
-      ]),
-    });
+    // const authNftValue = Core.Value.fromCore({
+    //   coins: 0n,
+    //   assets: new Map([
+    //     [
+    //       Core.AssetId.fromParts(
+    //         Core.PolicyId(authPolicyId),
+    //         Core.AssetName(authTokenAssetName)
+    //       ),
+    //       1n,
+    //     ],
+    //   ]),
+    // });
+
+    // const fungibleValue = Core.Value.fromCore({
+    //   coins: 0n,
+    //   assets: new Map([
+    //     [
+    //       Core.AssetId.fromParts(
+    //         Core.PolicyId(tokenPolicyId),
+    //         Core.AssetName(fungibleAssetName)
+    //       ),
+    //       BigInt(formData.supply),
+    //     ],
+    //   ]),
+    // });
 
     console.debug("🏗️  Building transaction");
 
@@ -278,9 +294,36 @@ export async function POST(request: NextRequest) {
         Core.getBurnAddress(walletAddress.startsWith("addr_test") ? 0 : 1),
         referenceNftValue,
         fungibleDatum
-      ) // Reference NFT with metadata
-      .payAssets(receiveAddress, authNftValue, authNftDatum) // Auth NFT to user
-      .payAssets(receiveAddress, fungibleValue) // Fungible tokens to user
+      ) // Fungible reference NFT with metadata
+      .lockAssets(
+        Core.getBurnAddress(walletAddress.startsWith("addr_test") ? 0 : 1),
+        authReferenceNftValue,
+        authNftDatum
+      ) // Auth token reference NFT with metadata
+      // .payAssets(receiveAddress, authNftValue) // Auth NFT to user
+      // .payAssets(receiveAddress, fungibleValue) // Fungible tokens to user
+      .payAssets(
+        receiveAddress,
+        Core.Value.fromCore({
+          coins: 0n,
+          assets: new Map([
+            [
+              Core.AssetId.fromParts(
+                Core.PolicyId(authPolicyId),
+                Core.AssetName(authTokenAssetName)
+              ),
+              1n,
+            ],
+            [
+              Core.AssetId.fromParts(
+                Core.PolicyId(tokenPolicyId),
+                Core.AssetName(fungibleAssetName)
+              ),
+              BigInt(formData.supply),
+            ],
+          ]),
+        })
+      )
       .complete();
 
     console.debug("✅ Transaction built successfully with CIP-68 datum");
