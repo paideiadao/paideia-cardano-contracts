@@ -1,36 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  MeshTxBuilder,
-  stringToHex,
-  resolveScriptHash,
-  metadataToCip68,
-  mConStr0,
-} from "@meshsdk/core";
-import { createTokenMintingScript } from "@/lib/token-minting-script";
-import { CIP68_LABELS, fromHex, generateCip67Label } from "@/lib/cip67-labels";
+import { stringToHex } from "@meshsdk/core";
+import { CIP68_LABELS, generateCip67Label } from "@/lib/cip67-labels";
 import {
   Cip68FungibleMetadata,
+  Cip68NftMetadata,
   createFungibleDatum,
-  metadataToPlutusCbor,
+  createNftDatum,
 } from "@/lib/cip68-metadata";
-import { maestroProvider } from "@/lib/server/maestro";
 import { Blaze, ColdWallet, Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { applyParamsToScript, cborToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
-
-interface TokenFormData {
-  name: string;
-  symbol: string;
-  description: string;
-  supply: number;
-  decimals: number;
-  ticker: string;
-  url: string;
-  logo: string;
-  mintingPeriodDays: number;
-}
+import { TokenFormData } from "@/components/forms/token-mint-form";
 
 interface MintTokenRequest {
   formData: TokenFormData;
@@ -49,40 +31,74 @@ export async function POST(request: NextRequest) {
       changeAddress,
     }: MintTokenRequest = await request.json();
 
+    // Validate collateral availability, and throw a good error if not
     if (!collateral?.length) {
-      throw new Error("No collateral available");
+      throw new Error("No collateral available, please set it in your wallet");
     }
 
-    // Create token name
+    console.debug(`📝 Minting token: ${formData.name} (${formData.symbol})`);
+    console.debug(
+      `💰 Supply: ${formData.supply}, Decimals: ${formData.decimals}`
+    );
+
+    // Create token name and auth token name
     const tokenName = formData.symbol;
     const tokenNameHex = stringToHex(tokenName);
+    const authTokenNameHex = stringToHex("AUTH_" + formData.symbol);
 
-    // Create auth token name (add this)
-    const authTokenName = stringToHex("AUTH_" + formData.symbol);
+    console.debug(`🏷️  Token name hex: ${tokenNameHex}`);
+    console.debug(`🔐 Auth token name hex: ${authTokenNameHex}`);
 
     // Create CIP-68 metadata
     const fungibleMetadata: Cip68FungibleMetadata = {
       name: formData.name,
       description: formData.description,
-      ticker: formData.ticker,
+      ticker: formData.symbol,
       decimals: formData.decimals,
       ...(formData.url && { url: formData.url }),
       ...(formData.logo && { logo: formData.logo }),
     };
+    const authNftMetadata: Cip68NftMetadata = {
+      name: `${formData.name} Minting Authority`,
+      image: formData.logo ?? "", // Use logo as image for auth NFT
+      description: `Minting authority token for ${formData.name} (${formData.symbol})`,
+    };
 
+    // Generate CIP-68 asset names
     const referenceAssetName =
       generateCip67Label(CIP68_LABELS.REFERENCE_NFT) + tokenNameHex; // 100
     const fungibleAssetName =
       generateCip67Label(CIP68_LABELS.FUNGIBLE_TOKEN) + tokenNameHex; // 333
+    const authTokenAssetName =
+      generateCip67Label(CIP68_LABELS.NFT) + authTokenNameHex; // 222
 
+    console.debug(`📋 Reference asset name: ${referenceAssetName}`);
+    console.debug(`🪙 Fungible asset name: ${fungibleAssetName}`);
+    console.debug(`📝 Auth NFT asset name: ${authTokenAssetName}`);
+
+    // Setup addresses and wallet
     const receiveAddress = Core.addressFromBech32(changeAddress);
     const sendAddress = Core.addressFromBech32(walletAddress);
     const wallet = new ColdWallet(sendAddress, 0, blazeMaestroProvider);
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
-    const address = Core.addressFromBech32(walletAddress);
-    const utxos = await blazeMaestroProvider.getUnspentOutputs(address);
-    const firstUtxo = utxos[0];
 
+    // Get UTXOs from wallet
+    const utxos = await blazeMaestroProvider.getUnspentOutputs(sendAddress);
+
+    if (!utxos?.length) {
+      throw new Error(
+        "No UTXOs found in wallet. Please add some ADA to your wallet first - you need ADA to pay transaction fees and meet minimum UTxO requirements for minting."
+      );
+    }
+
+    const firstUtxo = utxos[0];
+    console.debug(
+      `📦 Using UTxO: ${firstUtxo.input().transactionId()}#${firstUtxo
+        .input()
+        .index()}`
+    );
+
+    // Load validators from plutus.json
     const authTokenValidator = plutusJson.validators.find(
       (v) => v.title === "auth_token_policy.auth_token_policy.mint"
     );
@@ -91,10 +107,14 @@ export async function POST(request: NextRequest) {
     );
 
     if (!authTokenValidator || !tokenMintingValidator) {
-      throw new Error("Validators not found in plutus.json");
+      throw new Error(
+        "Validators not found in plutus.json, please contact support."
+      );
     }
 
-    // For auth token policy (expects OutputReference parameter)
+    console.debug("🔧 Parameterizing auth token script");
+
+    // Parameterize auth token policy with OutputReference
     const parameterizedAuthTokenScript = (applyParamsToScript as any)(
       authTokenValidator.compiledCode,
       Type.Tuple([
@@ -120,6 +140,9 @@ export async function POST(request: NextRequest) {
     );
     const authPolicyId = authTokenScript.hash();
 
+    console.debug(`🔑 Auth policy ID: ${authPolicyId}`);
+    console.debug("🔧 Parameterizing token minting script");
+
     // For token minting policy (expects PolicyId and AssetName parameters)
     const parameterizedTokenScript = (applyParamsToScript as any)(
       tokenMintingValidator.compiledCode,
@@ -127,58 +150,52 @@ export async function POST(request: NextRequest) {
         Type.String(), // PolicyId as hex string
         Type.String(), // AssetName as hex string
       ]),
-      [authPolicyId, authTokenName]
+      [authPolicyId, authTokenAssetName]
     );
 
     const tokenScript = cborToScript(parameterizedTokenScript, "PlutusV3");
 
-    // Get the base script
-    const baseScriptHex = tokenMintingValidator.compiledCode;
+    console.debug("📋 Creating CIP-68 datum");
+    // Create CIP-68 datum
+    // const cip68Datum = createFungibleDatum(fungibleMetadata);
 
-    // Create the parameterized script
-    const plutusV3Script = new Core.PlutusV3Script(Core.HexBlob(baseScriptHex));
-    const script = Core.Script.newPlutusV3Script(plutusV3Script);
+    // const plutusMap = new Core.PlutusMap();
+    // Object.entries(cip68Datum.metadata).forEach(([key, value]) => {
+    //   console.log(
+    //     `📝 Adding metadata field: ${key} = ${value} (type: ${typeof value})`
+    //   );
+    //   const keyData = Core.PlutusData.newBytes(new TextEncoder().encode(key));
 
-    const cip68Datum = createFungibleDatum(fungibleMetadata);
+    //   let valueData;
+    //   if (typeof value === "string") {
+    //     valueData = Core.PlutusData.newBytes(new TextEncoder().encode(value));
+    //   } else if (typeof value === "number") {
+    //     valueData = Core.PlutusData.newInteger(BigInt(value));
+    //   } else if (Array.isArray(value)) {
+    //     valueData = Core.PlutusData.newBytes(
+    //       new TextEncoder().encode(JSON.stringify(value))
+    //     );
+    //   }
 
-    const plutusMap = new Core.PlutusMap();
-    Object.entries(cip68Datum.metadata).forEach(([key, value]) => {
-      const keyData = Core.PlutusData.newBytes(new TextEncoder().encode(key));
+    //   plutusMap.insert(keyData, valueData!);
+    // });
 
-      let valueData;
-      if (typeof value === "string") {
-        valueData = Core.PlutusData.newBytes(new TextEncoder().encode(value));
-      } else if (typeof value === "number") {
-        valueData = Core.PlutusData.newInteger(BigInt(value));
-      } else if (Array.isArray(value)) {
-        valueData = Core.PlutusData.newBytes(
-          new TextEncoder().encode(JSON.stringify(value))
-        );
-      }
+    // // Build the constructor fields list
+    // const fieldsList = new Core.PlutusList();
+    // fieldsList.add(Core.PlutusData.newMap(plutusMap)); // metadata map
+    // fieldsList.add(Core.PlutusData.newInteger(BigInt(cip68Datum.version))); // version
+    // fieldsList.add(Core.PlutusData.newBytes(new Uint8Array(0))); // null/empty for extra
 
-      plutusMap.insert(keyData, valueData!);
-    });
+    // // Create the constructor
+    // const constrData = new Core.ConstrPlutusData(0n, fieldsList); // Constructor 0
+    // const datumCore = Core.PlutusData.newConstrPlutusData(constrData);
 
-    // Build the constructor fields list
-    const fieldsList = new Core.PlutusList();
-    fieldsList.add(Core.PlutusData.newMap(plutusMap)); // metadata map
-    fieldsList.add(Core.PlutusData.newInteger(BigInt(cip68Datum.version))); // version
-    fieldsList.add(Core.PlutusData.newBytes(new Uint8Array(0))); // null/empty for extra
+    const fungibleDatum = createCip68Datum(fungibleMetadata);
+    const authNftDatum = createCip68NftDatum(authNftMetadata);
 
-    // Create the constructor
-    const constrData = new Core.ConstrPlutusData(0n, fieldsList); // Constructor 0
-    const datumCore = Core.PlutusData.newConstrPlutusData(constrData);
-
-    console.log(Object.getOwnPropertyNames(Core.PlutusData));
-
-    const blazePolicyId = script.hash();
-
-    const mintMap: Map<Core.AssetName, bigint> = new Map();
-    // Mint auth token
-    mintMap.set(Core.AssetName(authTokenName), 1n);
-
+    // Create mint maps
     const authMintMap: Map<Core.AssetName, bigint> = new Map();
-    authMintMap.set(Core.AssetName(authTokenName), 1n);
+    authMintMap.set(Core.AssetName(authTokenAssetName), 1n);
 
     const tokenMintMap: Map<Core.AssetName, bigint> = new Map();
     tokenMintMap.set(Core.AssetName(referenceAssetName), 1n);
@@ -186,6 +203,8 @@ export async function POST(request: NextRequest) {
       Core.AssetName(fungibleAssetName),
       BigInt(formData.supply)
     );
+
+    console.debug("🎭 Creating redeemers");
 
     // Create redeemers
     const authRedeemer = Core.PlutusData.newBytes(new Uint8Array(0)); // Empty for one-shot
@@ -195,6 +214,8 @@ export async function POST(request: NextRequest) {
     );
 
     const tokenPolicyId = tokenScript.hash();
+
+    console.debug(`🪙 Token policy ID: ${tokenPolicyId}`);
 
     const referenceNftValue = Core.Value.fromCore({
       coins: 0n, // Let Blaze calculate minimum ADA
@@ -209,8 +230,21 @@ export async function POST(request: NextRequest) {
       ]),
     });
 
-    const fungibleAndAuthValue = Core.Value.fromCore({
-      coins: 0n, // Let Blaze calculate minimum ADA
+    const authNftValue = Core.Value.fromCore({
+      coins: 0n,
+      assets: new Map([
+        [
+          Core.AssetId.fromParts(
+            Core.PolicyId(authPolicyId),
+            Core.AssetName(authTokenAssetName)
+          ),
+          1n,
+        ],
+      ]),
+    });
+
+    const fungibleValue = Core.Value.fromCore({
+      coins: 0n,
       assets: new Map([
         [
           Core.AssetId.fromParts(
@@ -219,15 +253,18 @@ export async function POST(request: NextRequest) {
           ),
           BigInt(formData.supply),
         ],
-        [
-          Core.AssetId.fromParts(
-            Core.PolicyId(authPolicyId),
-            Core.AssetName(authTokenName)
-          ),
-          1n,
-        ],
       ]),
     });
+
+    console.debug("🏗️  Building transaction");
+
+    console.log("Token validator expecting auth_policy_id:", authPolicyId);
+    console.log(
+      "Token validator expecting auth_token_name:",
+      authTokenAssetName
+    );
+    console.log("Actually minting with policy:", authPolicyId);
+    console.log("Actually minting asset name:", authTokenAssetName);
 
     // Build transaction with proper UTxO handling
     const tx = await blaze
@@ -237,20 +274,24 @@ export async function POST(request: NextRequest) {
       .provideScript(tokenScript)
       .addMint(Core.PolicyId(authPolicyId), authMintMap, authRedeemer)
       .addMint(Core.PolicyId(tokenPolicyId), tokenMintMap, tokenRedeemer)
-      .payAssets(receiveAddress, referenceNftValue, datumCore) // Reference NFT with metadata
-      .payAssets(receiveAddress, fungibleAndAuthValue) // Fungible tokens + auth token
+      .lockAssets(
+        Core.getBurnAddress(walletAddress.startsWith("addr_test") ? 0 : 1),
+        referenceNftValue,
+        fungibleDatum
+      ) // Reference NFT with metadata
+      .payAssets(receiveAddress, authNftValue, authNftDatum) // Auth NFT to user
+      .payAssets(receiveAddress, fungibleValue) // Fungible tokens to user
       .complete();
 
-    console.log("✓ Transaction built successfully with CIP-68 datum");
+    console.debug("✅ Transaction built successfully with CIP-68 datum");
 
     return NextResponse.json({
       unsignedTx: tx.toCbor(),
       tokenInfo: {
-        policyId: blazePolicyId,
+        policyId: tokenPolicyId,
         referenceAssetName,
         fungibleAssetName,
         metadata: fungibleMetadata,
-        // datum: cip68Datum,
       },
     });
   } catch (error) {
@@ -266,4 +307,76 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+function createCip68Datum(metadata: Cip68FungibleMetadata) {
+  console.debug("📋 Creating CIP-68 datum");
+
+  const cip68Datum = createFungibleDatum(metadata);
+
+  const plutusMap = new Core.PlutusMap();
+  Object.entries(cip68Datum.metadata).forEach(([key, value]) => {
+    console.log(
+      `📝 Adding metadata field: ${key} = ${value} (type: ${typeof value})`
+    );
+    const keyData = Core.PlutusData.newBytes(new TextEncoder().encode(key));
+
+    let valueData;
+    if (typeof value === "string") {
+      valueData = Core.PlutusData.newBytes(new TextEncoder().encode(value));
+    } else if (typeof value === "number") {
+      valueData = Core.PlutusData.newInteger(BigInt(value));
+    } else if (Array.isArray(value)) {
+      valueData = Core.PlutusData.newBytes(
+        new TextEncoder().encode(JSON.stringify(value))
+      );
+    }
+
+    plutusMap.insert(keyData, valueData!);
+  });
+
+  // Build the constructor fields list
+  const fieldsList = new Core.PlutusList();
+  fieldsList.add(Core.PlutusData.newMap(plutusMap)); // metadata map
+  fieldsList.add(Core.PlutusData.newInteger(BigInt(cip68Datum.version))); // version
+  fieldsList.add(Core.PlutusData.newBytes(new Uint8Array(0))); // null/empty for extra
+
+  // Create the constructor
+  const constrData = new Core.ConstrPlutusData(0n, fieldsList); // Constructor 0
+  return Core.PlutusData.newConstrPlutusData(constrData);
+}
+
+function createCip68NftDatum(metadata: Cip68NftMetadata) {
+  console.debug("📋 Creating CIP-68 NFT datum");
+
+  const cip68Datum = createNftDatum(metadata);
+
+  const plutusMap = new Core.PlutusMap();
+  Object.entries(cip68Datum.metadata).forEach(([key, value]) => {
+    console.log(
+      `📝 Adding metadata field: ${key} = ${value} (type: ${typeof value})`
+    );
+    const keyData = Core.PlutusData.newBytes(new TextEncoder().encode(key));
+
+    let valueData;
+    if (typeof value === "string") {
+      valueData = Core.PlutusData.newBytes(new TextEncoder().encode(value));
+    } else if (typeof value === "number") {
+      valueData = Core.PlutusData.newInteger(BigInt(value));
+    } else if (Array.isArray(value)) {
+      valueData = Core.PlutusData.newBytes(
+        new TextEncoder().encode(JSON.stringify(value))
+      );
+    }
+
+    plutusMap.insert(keyData, valueData!);
+  });
+
+  const fieldsList = new Core.PlutusList();
+  fieldsList.add(Core.PlutusData.newMap(plutusMap));
+  fieldsList.add(Core.PlutusData.newInteger(BigInt(cip68Datum.version)));
+  fieldsList.add(Core.PlutusData.newBytes(new Uint8Array(0)));
+
+  const constrData = new Core.ConstrPlutusData(0n, fieldsList);
+  return Core.PlutusData.newConstrPlutusData(constrData);
 }

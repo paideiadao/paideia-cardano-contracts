@@ -2,17 +2,6 @@
 
 import { useState } from "react";
 import { useWallet } from "@meshsdk/react";
-import {
-  Transaction,
-  Mint,
-  PlutusScript,
-  stringToHex,
-  resolvePlutusScriptAddress,
-  MeshTxBuilder,
-  CIP68_100,
-  mConStr0,
-  resolveScriptHash,
-} from "@meshsdk/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,16 +16,14 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2 } from "lucide-react";
 
-interface TokenFormData {
+export interface TokenFormData {
   name: string;
   symbol: string;
   description: string;
   supply: number;
   decimals: number;
-  ticker: string;
   url: string;
   logo: string;
-  mintingPeriodDays: number;
 }
 
 export function TokenMintForm() {
@@ -47,10 +34,8 @@ export function TokenMintForm() {
     description: "",
     supply: 1000000,
     decimals: 6,
-    ticker: "",
     url: "",
     logo: "",
-    mintingPeriodDays: 30,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,9 +48,6 @@ export function TokenMintForm() {
     setFormData((prev) => ({
       ...prev,
       [field]: value,
-      // Auto-fill ticker if not manually set
-      ...(field === "symbol" &&
-        !prev.ticker && { ticker: value.toString().toUpperCase() }),
     }));
     setError(null);
     setSuccess(null);
@@ -166,7 +148,7 @@ export function TokenMintForm() {
               />
             </div>
             <div>
-              <Label htmlFor="symbol">Symbol</Label>
+              <Label htmlFor="symbol">Symbol (Ticker)</Label>
               <Input
                 id="symbol"
                 value={formData.symbol}
@@ -216,37 +198,6 @@ export function TokenMintForm() {
                 }
                 min={0}
                 max={18}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="ticker">Ticker (Optional)</Label>
-              <Input
-                id="ticker"
-                value={formData.ticker}
-                onChange={(e) =>
-                  handleInputChange("ticker", e.target.value.toUpperCase())
-                }
-                placeholder="Auto-filled from symbol"
-              />
-            </div>
-            <div>
-              <Label htmlFor="mintingPeriodDays">Minting Period (Days)</Label>
-              <Input
-                id="mintingPeriodDays"
-                type="number"
-                value={formData.mintingPeriodDays}
-                onChange={(e) =>
-                  handleInputChange(
-                    "mintingPeriodDays",
-                    parseInt(e.target.value) || 1
-                  )
-                }
-                min={1}
-                max={365}
                 required
               />
             </div>
