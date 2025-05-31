@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check, Clock, Circle } from "lucide-react";
 import { TokenMintForm } from "@/components/forms/token-mint-form";
+<<<<<<< HEAD
+=======
+import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
+import GovernanceTokenStep from "./_components/governance-token-step";
+>>>>>>> ef08f18 (save current work)
 
 type StepStatus = "pending" | "active" | "completed";
 
@@ -18,20 +23,36 @@ interface CreateDAOStep {
 }
 
 export default function CreateDAOPage() {
+<<<<<<< HEAD
   const [currentStep, setCurrentStep] = useState(0);
   const [steps, setSteps] = useState<CreateDAOStep[]>([
+=======
+  const {
+    currentStep,
+    setCurrentStep,
+    canProceedToStep,
+    governanceToken,
+    daoConfig,
+  } = useDAOCreationStore();
+
+  const steps = [
+>>>>>>> ef08f18 (save current work)
     {
       id: "governance-token",
       title: "Set Governance Token",
       description:
         "Create a new token or specify an existing one for DAO governance",
+<<<<<<< HEAD
       status: "active",
+=======
+>>>>>>> ef08f18 (save current work)
     },
     {
       id: "dao-config",
       title: "Configure DAO Parameters",
       description:
         "Set voting thresholds, proposal timing, and other governance rules",
+<<<<<<< HEAD
       status: "pending",
     },
     {
@@ -39,11 +60,14 @@ export default function CreateDAOPage() {
       title: "Initialize Treasury",
       description: "Fund the initial DAO treasury (optional)",
       status: "pending",
+=======
+>>>>>>> ef08f18 (save current work)
     },
     {
       id: "deploy",
       title: "Deploy DAO",
       description: "Create the DAO on-chain with your configuration",
+<<<<<<< HEAD
       status: "pending",
     },
   ]);
@@ -79,6 +103,28 @@ export default function CreateDAOPage() {
     }
   };
 
+=======
+    },
+    {
+      id: "treasury-setup",
+      title: "Fund Treasury",
+      description: "Fund the initial DAO treasury (optional)",
+    },
+  ];
+
+  const goToStep = (stepIndex: number) => {
+    if (canProceedToStep(stepIndex)) {
+      setCurrentStep(stepIndex);
+    }
+  };
+
+  const getStepStatus = (stepIndex: number) => {
+    if (stepIndex < currentStep) return "completed";
+    if (stepIndex === currentStep) return "active";
+    return "pending";
+  };
+
+>>>>>>> ef08f18 (save current work)
   const getStepIcon = (status: StepStatus, stepIndex: number) => {
     switch (status) {
       case "completed":
@@ -130,7 +176,11 @@ export default function CreateDAOPage() {
                   onClick={() => goToStep(index)}
                 >
                   <div className="flex-shrink-0 mt-0.5">
+<<<<<<< HEAD
                     {getStepIcon(step.status, index)}
+=======
+                    {getStepIcon(getStepStatus(index), index)}
+>>>>>>> ef08f18 (save current work)
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -144,7 +194,11 @@ export default function CreateDAOPage() {
                         {step.title}
                       </h3>
                       <Badge
+<<<<<<< HEAD
                         variant={getStepBadgeVariant(step.status)}
+=======
+                        variant={getStepBadgeVariant(getStepStatus(index))}
+>>>>>>> ef08f18 (save current work)
                         className="text-xs"
                       >
                         {index + 1}
@@ -165,7 +219,11 @@ export default function CreateDAOPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2 mb-2">
+<<<<<<< HEAD
                 {getStepIcon(steps[currentStep].status, currentStep)}
+=======
+                {getStepIcon(getStepStatus(currentStep), currentStep)}
+>>>>>>> ef08f18 (save current work)
                 <CardTitle>{steps[currentStep].title}</CardTitle>
               </div>
               <p className="text-muted-foreground">
@@ -175,6 +233,7 @@ export default function CreateDAOPage() {
             <CardContent>
               {/* Step Content */}
               {currentStep === 0 && (
+<<<<<<< HEAD
                 <GovernanceTokenStep onComplete={proceedToNextStep} />
               )}
               {currentStep === 1 && (
@@ -182,6 +241,15 @@ export default function CreateDAOPage() {
               )}
               {currentStep === 2 && (
                 <TreasurySetupStep onComplete={proceedToNextStep} />
+=======
+                <GovernanceTokenStep onComplete={() => goToStep(1)} />
+              )}
+              {currentStep === 1 && (
+                <DAOConfigStep onComplete={() => goToStep(2)} />
+              )}
+              {currentStep === 2 && (
+                <TreasurySetupStep onComplete={() => goToStep(3)} />
+>>>>>>> ef08f18 (save current work)
               )}
               {currentStep === 3 && <DeployStep />}
             </CardContent>
@@ -192,6 +260,7 @@ export default function CreateDAOPage() {
   );
 }
 
+<<<<<<< HEAD
 // Placeholder components for each step
 function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
   return (
@@ -205,6 +274,8 @@ function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
   );
 }
 
+=======
+>>>>>>> ef08f18 (save current work)
 function DAOConfigStep({ onComplete }: { onComplete: () => void }) {
   return (
     <div className="space-y-6">
