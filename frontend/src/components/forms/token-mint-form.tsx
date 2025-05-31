@@ -23,7 +23,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, Info } from "lucide-react";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 
-
 export interface TokenFormData {
   name: string;
   symbol: string;
@@ -117,8 +116,6 @@ export function TokenMintForm() {
 
       console.log("✓ Transaction submitted:", txHash);
       console.log("✓ Token info:", tokenInfo);
-<<<<<<< HEAD
-=======
 
       setGovernanceToken({
         policyId: tokenInfo.policyId,
@@ -130,7 +127,6 @@ export function TokenMintForm() {
         txHash,
       });
 
->>>>>>> ef08f18 (save current work)
       setSuccess(
         `CIP-68 token minted successfully! Transaction hash: ${txHash}`
       );
