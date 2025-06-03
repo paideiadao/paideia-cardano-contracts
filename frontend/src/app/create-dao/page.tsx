@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,18 @@ import { TokenMintForm } from "@/components/forms/token-mint-form";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 import GovernanceTokenStep from "./_components/governance-token-step";
 import { DAOConfigStep } from "./_components/dao-config-step";
+import DeployDaoStep from "./_components/deploy-dao-step";
+import { TreasuryFundingStep } from "./_components/treasury-funding-step";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type StepStatus = "pending" | "active" | "completed";
 
@@ -25,9 +37,23 @@ export default function CreateDAOPage() {
     currentStep,
     setCurrentStep,
     canProceedToStep,
-    governanceToken,
-    daoConfig,
+    calculateCurrentStep,
+    reset,
   } = useDAOCreationStore();
+
+  const [showClearDialog, setShowClearDialog] = useState(false);
+
+  useEffect(() => {
+    const calculatedStep = calculateCurrentStep();
+    if (calculatedStep !== currentStep) {
+      setCurrentStep(calculatedStep);
+    }
+  }, []);
+
+  const handleClearProgress = () => {
+    reset();
+    setShowClearDialog(false);
+  };
 
   const steps = [
     {
@@ -102,8 +128,16 @@ export default function CreateDAOPage() {
         {/* Timeline Sidebar */}
         <div className="lg:col-span-1">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Progress</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowClearDialog(true)}
+                className="text-destructive hover:text-destructive"
+              >
+                Clear
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               {steps.map((step, index) => (
@@ -167,48 +201,37 @@ export default function CreateDAOPage() {
               {currentStep === 1 && (
                 <DAOConfigStep onComplete={() => goToStep(2)} />
               )}
-              {currentStep === 2 && <DeployStep />}
+              {currentStep === 2 && <DeployDaoStep />}
               {currentStep === 3 && (
-                <TreasurySetupStep onComplete={() => goToStep(3)} />
+                <TreasuryFundingStep onComplete={() => goToStep(3)} />
               )}
             </CardContent>
           </Card>
         </div>
       </div>
-    </div>
-  );
-}
 
-function TreasurySetupStep({ onComplete }: { onComplete: () => void }) {
-  return (
-    <div className="space-y-6">
-      <div className="text-center py-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-        <p className="text-muted-foreground">
-          Treasury setup form coming next...
-        </p>
-      </div>
-
-      <div className="flex justify-between">
-        <Button variant="outline">Back</Button>
-        <Button onClick={onComplete}>Continue to Deploy</Button>
-      </div>
-    </div>
-  );
-}
-
-function DeployStep() {
-  return (
-    <div className="space-y-6">
-      <div className="text-center py-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-        <p className="text-muted-foreground">
-          Deployment interface coming next...
-        </p>
-      </div>
-
-      <div className="flex justify-between">
-        <Button variant="outline">Back</Button>
-        <Button>Deploy DAO</Button>
-      </div>
+      {showClearDialog && (
+        <AlertDialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Clear Progress?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete all your DAO creation progress and
+                start over from the beginning.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleClearProgress}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Clear Progress
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

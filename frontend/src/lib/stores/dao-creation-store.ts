@@ -57,6 +57,7 @@ interface DAOCreationState {
 
   // Utilities
   canProceedToStep: (step: number) => boolean;
+  calculateCurrentStep: () => number;
   reset: () => void;
 }
 
@@ -106,13 +107,22 @@ export const useDAOCreationStore = create<DAOCreationState>()(
         }
       },
 
-      reset: () => set(initialState),
+      calculateCurrentStep: () => {
+        const state = get();
+        if (state.daoTxHash) return 3; // Deploy completed, go to treasury
+        if (state.daoConfig) return 2; // Config completed, go to deploy
+        if (state.governanceToken) return 1; // Token completed, go to config
+        return 0; // Start from beginning
+      },
+
+      reset: () => set({ ...initialState, currentStep: 0 }),
     }),
     {
       name: "dao-creation-storage",
       storage: createJSONStorage(() => localStorage),
       // Only persist the data, not UI state like currentStep
       partialize: (state) => ({
+        currentStep: state.currentStep,
         governanceToken: state.governanceToken,
         daoConfig: state.daoConfig,
         treasuryFunding: state.treasuryFunding,
