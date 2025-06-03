@@ -8,6 +8,7 @@ import { Check, Clock, Circle } from "lucide-react";
 import { TokenMintForm } from "@/components/forms/token-mint-form";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 import GovernanceTokenStep from "./_components/governance-token-step";
+import { DAOConfigStep } from "./_components/dao-config-step";
 
 type StepStatus = "pending" | "active" | "completed";
 
@@ -166,30 +167,13 @@ export default function CreateDAOPage() {
               {currentStep === 1 && (
                 <DAOConfigStep onComplete={() => goToStep(2)} />
               )}
-              {currentStep === 2 && (
+              {currentStep === 2 && <DeployStep />}
+              {currentStep === 3 && (
                 <TreasurySetupStep onComplete={() => goToStep(3)} />
               )}
-              {currentStep === 3 && <DeployStep />}
             </CardContent>
           </Card>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function DAOConfigStep({ onComplete }: { onComplete: () => void }) {
-  return (
-    <div className="space-y-6">
-      <div className="text-center py-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-        <p className="text-muted-foreground">
-          DAO configuration form coming next...
-        </p>
-      </div>
-
-      <div className="flex justify-between">
-        <Button variant="outline">Back</Button>
-        <Button onClick={onComplete}>Continue to Treasury Setup</Button>
       </div>
     </div>
   );

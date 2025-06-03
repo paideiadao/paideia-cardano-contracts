@@ -46,7 +46,7 @@ interface DAOCreationState {
 
   // Actions
   setCurrentStep: (step: number) => void;
-  setGovernanceToken: (token: GovernanceTokenInfo) => void;
+  setGovernanceToken: (token: GovernanceTokenInfo | null) => void;
   setDAOConfig: (config: DAOConfig) => void;
   setTreasuryFunding: (funding: TreasuryFunding) => void;
   setDeployResults: (

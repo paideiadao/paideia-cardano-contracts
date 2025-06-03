@@ -5,9 +5,12 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, X } from "lucide-react";
 import { TokenMintForm } from "@/components/forms/token-mint-form";
-import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
+import {
+  GovernanceTokenInfo,
+  useDAOCreationStore,
+} from "@/lib/stores/dao-creation-store";
 import { TokenValidationResponse } from "@/app/api/tokens/validate/route";
 
 function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
@@ -70,14 +73,62 @@ function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
     setGovernanceToken(tokenInfo);
   };
 
+  // Add function to deselect token
+  const handleDeselectToken = () => {
+    setGovernanceToken(null);
+    // Also clear validation result when deselecting
+    setValidationResult(null);
+  };
+
   const canProceed =
     (activeTab === "create" &&
       governanceToken &&
       !governanceToken.isExisting) ||
     (activeTab === "existing" && governanceToken && governanceToken.isExisting);
 
+  const tokenInUse = (
+    usedToken: GovernanceTokenInfo | null,
+    validatedToken: TokenValidationResponse
+  ) => {
+    if (
+      usedToken?.assetName === validatedToken.assetName &&
+      usedToken.policyId === validatedToken.policyId
+    )
+      return true;
+    else return false;
+  };
+
   return (
     <div className="space-y-6">
+      {/* Add selected token display at the top */}
+      {governanceToken && (
+        <Alert>
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Selected governance token:</p>
+                <p className="text-sm">
+                  {governanceToken.name} ({governanceToken.symbol})
+                  {governanceToken.isExisting
+                    ? " - Existing Token"
+                    : " - New Token"}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDeselectToken}
+                className="ml-4 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Deselect
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Tabs
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as "create" | "existing")}
@@ -167,8 +218,14 @@ function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
                               onClick={handleUseExistingToken}
                               size="sm"
                               className="mt-2"
+                              disabled={tokenInUse(
+                                governanceToken!,
+                                validationResult
+                              )}
                             >
-                              Use This Token
+                              {tokenInUse(governanceToken!, validationResult)
+                                ? "Token selected"
+                                : "Use This Token"}
                             </Button>
                           </div>
                         </AlertDescription>
@@ -182,18 +239,6 @@ function GovernanceTokenStep({ onComplete }: { onComplete: () => void }) {
                       </Alert>
                     )}
                   </div>
-                )}
-
-                {governanceToken && governanceToken.isExisting && (
-                  <Alert>
-                    <CheckCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      <p className="font-medium">Selected governance token:</p>
-                      <p className="text-sm">
-                        {governanceToken.name} ({governanceToken.symbol})
-                      </p>
-                    </AlertDescription>
-                  </Alert>
                 )}
               </div>
             </CardContent>
