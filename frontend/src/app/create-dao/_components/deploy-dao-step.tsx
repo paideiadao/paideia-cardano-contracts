@@ -66,7 +66,7 @@ export default function DeployDaoStep() {
         const usedAddresses = await wallet.getUsedAddresses();
         const address = usedAddresses[0];
         const collateral = await wallet.getCollateral();
-        const changeAddress = await wallet.getChangeAddress();
+        // const changeAddress = await wallet.getChangeAddress();
 
         if (!collateral?.length) {
           throw new Error("No collateral available");
@@ -82,7 +82,7 @@ export default function DeployDaoStep() {
             daoConfig,
             walletAddress: address,
             collateral,
-            changeAddress,
+            // changeAddress,
           }),
         });
 

@@ -1,4 +1,3 @@
-// src/app/api/dao/deploy/route.ts - Fix the DAO key generation
 import { NextRequest, NextResponse } from "next/server";
 import { Blaze, ColdWallet, Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
@@ -14,7 +13,7 @@ interface DeployDAORequest {
   daoConfig: DAOConfig;
   walletAddress: string;
   collateral: any[];
-  changeAddress: string;
+  // changeAddress: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -24,8 +23,8 @@ export async function POST(request: NextRequest) {
       daoConfig,
       walletAddress,
       collateral,
-      changeAddress,
-    }: DeployDAORequest = await request.json();
+    }: // changeAddress,
+    DeployDAORequest = await request.json();
 
     if (!collateral?.length) {
       throw new Error("No collateral available, please set it in your wallet");
@@ -38,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     // Setup addresses and wallet
     const sendAddress = Core.addressFromBech32(walletAddress);
-    const receiveAddress = Core.addressFromBech32(changeAddress);
+    // const receiveAddress = Core.addressFromBech32(changeAddress);
     const wallet = new ColdWallet(sendAddress, 0, blazeMaestroProvider);
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
@@ -58,22 +57,43 @@ export async function POST(request: NextRequest) {
         .index()}`
     );
 
-    // Load DAO validator
+    // Load and create all required validators
     const daoValidator = plutusJson.validators.find(
       (v) => v.title === "dao.dao.mint"
     );
+    const proposalValidator = plutusJson.validators.find(
+      (v) => v.title === "proposal.proposal.mint"
+    );
+    const actionSendFundsValidator = plutusJson.validators.find(
+      (v) => v.title === "action_send_funds.action_send_funds.mint"
+    );
 
-    if (!daoValidator) {
-      throw new Error("DAO validator not found in plutus.json");
+    if (!daoValidator || !proposalValidator || !actionSendFundsValidator) {
+      throw new Error("Required validators not found in plutus.json");
     }
 
-    console.debug("🔧 Creating DAO script");
+    console.debug("🔧 Creating validator scripts and extracting policy IDs");
 
-    // Create DAO script (no parameters needed for minting policy)
+    // Create scripts and get their policy IDs (hashes)
     const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-    const daoPolicyId = daoScript.hash();
+    const proposalScript = cborToScript(
+      proposalValidator.compiledCode,
+      "PlutusV3"
+    );
+    const actionSendFundsScript = cborToScript(
+      actionSendFundsValidator.compiledCode,
+      "PlutusV3"
+    );
 
-    // Create unique DAO identifier from first UTXO (matches Aiken's unique_dao_identifier)
+    const daoPolicyId = daoScript.hash();
+    const proposalPolicyId = proposalScript.hash();
+    const actionSendFundsPolicyId = actionSendFundsScript.hash();
+
+    console.debug(`🔑 DAO Policy ID: ${daoPolicyId}`);
+    console.debug(`🔑 Proposal Policy ID: ${proposalPolicyId}`);
+    console.debug(`🔑 Action Send Funds Policy ID: ${actionSendFundsPolicyId}`);
+
+    // Create unique DAO identifier from first UTXO
     const outputRefData = Core.PlutusData.newConstrPlutusData(
       new Core.ConstrPlutusData(
         0n,
@@ -92,16 +112,19 @@ export async function POST(request: NextRequest) {
       )
     );
 
-    // Hash the serialized OutputReference CBOR (as hex string) to get exactly 32 bytes
-    const outputRefCbor = outputRefData.toCbor(); // This returns a hex string
-    const daoKey = Core.blake2b_256(outputRefCbor); // This already returns a hex string (Hash32ByteBase16)
+    const outputRefCbor = outputRefData.toCbor();
+    const daoKey = Core.blake2b_256(outputRefCbor);
 
-    console.debug(`🔑 DAO Policy ID: ${daoPolicyId}`);
     console.debug(`🔑 DAO Key: ${daoKey}`);
     console.debug(`🔑 DAO Key length: ${daoKey.length / 2} bytes`);
 
-    // Create DAO datum
-    const daoDatum = createDAODatum(governanceToken, daoConfig);
+    // Create DAO datum with populated whitelists
+    const daoDatum = createDAODatum(
+      governanceToken,
+      daoConfig,
+      proposalPolicyId,
+      actionSendFundsPolicyId
+    );
 
     // Create DAO redeemer (CreateDAO with output reference)
     const daoRedeemer = Core.PlutusData.newConstrPlutusData(
@@ -175,9 +198,11 @@ export async function POST(request: NextRequest) {
 
 function createDAODatum(
   governanceToken: GovernanceTokenInfo,
-  daoConfig: DAOConfig
+  daoConfig: DAOConfig,
+  proposalPolicyId: string,
+  actionSendFundsPolicyId: string
 ): Core.PlutusData {
-  console.debug("📋 Creating DAO datum");
+  console.debug("📋 Creating DAO datum with whitelisted validators");
 
   const fieldsList = new Core.PlutusList();
 
@@ -213,13 +238,20 @@ function createDAODatum(
     Core.PlutusData.newInteger(BigInt(daoConfig.minGovProposalCreate))
   );
 
-  // whitelisted_proposals: List<ByteArray> (empty for now, can be updated via governance)
+  // whitelisted_proposals: List<ByteArray> - Add proposal validator policy ID
   const proposalsList = new Core.PlutusList();
+  proposalsList.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
   fieldsList.add(Core.PlutusData.newList(proposalsList));
 
-  // whitelisted_actions: List<ByteArray> (empty for now, can be updated via governance)
+  // whitelisted_actions: List<ByteArray> - Add action send funds validator policy ID
   const actionsList = new Core.PlutusList();
+  actionsList.add(
+    Core.PlutusData.newBytes(Core.fromHex(actionSendFundsPolicyId))
+  );
   fieldsList.add(Core.PlutusData.newList(actionsList));
+
+  console.debug(`✅ Whitelisted proposal policy: ${proposalPolicyId}`);
+  console.debug(`✅ Whitelisted action policy: ${actionSendFundsPolicyId}`);
 
   // Return as Constructor 0 (DAODatum is a single constructor type)
   return Core.PlutusData.newConstrPlutusData(
