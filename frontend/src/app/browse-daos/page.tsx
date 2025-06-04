@@ -6,7 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2, Search, ExternalLink, Users, Clock, Coins } from "lucide-react";
+import {
+  Loader2,
+  Search,
+  ExternalLink,
+  Users,
+  Clock,
+  Coins,
+} from "lucide-react";
 import Link from "next/link";
 import { DAOListItem } from "@/app/api/dao/list/route";
 
@@ -141,11 +148,16 @@ export default function BrowseDAOsPage() {
       {/* DAO Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredDaos.map((dao) => (
-          <Card key={`${dao.policyId}-${dao.assetName}`} className="hover:shadow-lg transition-shadow">
+          <Card
+            key={`${dao.policyId}-${dao.assetName}`}
+            className="hover:shadow-lg transition-shadow"
+          >
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <CardTitle className="text-lg line-clamp-1">{dao.name}</CardTitle>
+                  <CardTitle className="text-lg line-clamp-1">
+                    {dao.name}
+                  </CardTitle>
                   <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                     {dao.description || "No description available"}
                   </p>
@@ -155,7 +167,11 @@ export default function BrowseDAOsPage() {
                   size="sm"
                   onClick={() =>
                     window.open(
-                      `https://${process.env.NEXT_PUBLIC_NETWORK === "mainnet" ? "" : "preview."}cardanoscan.io/transaction/${dao.utxoRef.txHash}`,
+                      `https://${
+                        process.env.NEXT_PUBLIC_NETWORK === "mainnet"
+                          ? ""
+                          : "preview."
+                      }cardanoscan.io/transaction/${dao.utxoRef.txHash}`,
                       "_blank"
                     )
                   }
@@ -182,34 +198,37 @@ export default function BrowseDAOsPage() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Quorum</p>
-                  <p className="text-sm font-medium">{dao.quorum.toLocaleString()}</p>
+                  <p className="text-sm font-medium">
+                    {dao.quorum.toLocaleString()}
+                  </p>
                 </div>
               </div>
 
               {/* Proposal Timing */}
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Proposal Duration</p>
+                <p className="text-xs text-muted-foreground mb-1">
+                  Proposal Duration
+                </p>
                 <div className="flex items-center gap-1 text-xs">
                   <Clock className="h-3 w-3" />
                   <span>
-                    {formatDuration(dao.minProposalTime)} - {formatDuration(dao.maxProposalTime)}
+                    {formatDuration(dao.minProposalTime)} -{" "}
+                    {formatDuration(dao.maxProposalTime)}
                   </span>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-2 pt-2">
-                <Link href={`/dao/${dao.policyId}/${dao.assetName}`} className="flex-1">
-                  <Button variant="outline" size="sm" className="w-full">
-                    View DAO
-                  </Button>
-                </Link>
-                <Link href={`/dao/${dao.policyId}/${dao.assetName}/proposals`} className="flex-1">
-                  <Button size="sm" className="w-full">
-                    Proposals
-                  </Button>
-                </Link>
-              </div>
+              <Link
+                href={`/dao?policyId=${encodeURIComponent(
+                  dao.policyId
+                )}&assetName=${encodeURIComponent(dao.assetName)}`}
+                className="flex-1"
+              >
+                <Button variant="outline" size="sm" className="w-full">
+                  View DAO
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         ))}
@@ -218,7 +237,9 @@ export default function BrowseDAOsPage() {
       {filteredDaos.length === 0 && !isLoading && (
         <div className="text-center py-12">
           <p className="text-muted-foreground">
-            {searchTerm.trim() ? "No DAOs match your search." : "No DAOs found."}
+            {searchTerm.trim()
+              ? "No DAOs match your search."
+              : "No DAOs found."}
           </p>
           {!searchTerm.trim() && (
             <Link href="/create-dao" className="mt-4 inline-block">
