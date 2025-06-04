@@ -47,9 +47,11 @@ export default function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="secondary" className="w-full">
-                Browse DAOs
-              </Button>
+              <Link href="/browse-daos">
+                <Button variant="secondary" className="w-full">
+                  Browse DAOs
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         </div>

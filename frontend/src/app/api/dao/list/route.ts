@@ -1,0 +1,189 @@
+import { NextResponse } from "next/server";
+import { Core } from "@blaze-cardano/sdk";
+import { blazeMaestroProvider } from "@/lib/server/blaze";
+import plutusJson from "@/lib/scripts/plutus.json";
+import { cborToScript } from "@blaze-cardano/uplc";
+
+export interface DAOListItem {
+  policyId: string;
+  assetName: string;
+  name: string;
+  description: string;
+  governanceToken: {
+    policyId: string;
+    assetName: string;
+    fullAssetId: string;
+  };
+  threshold: number;
+  quorum: number;
+  minProposalTime: number;
+  maxProposalTime: number;
+  minGovProposalCreate: number;
+  createdAt?: string;
+  utxoRef: {
+    txHash: string;
+    outputIndex: number;
+  };
+}
+
+export async function GET() {
+  try {
+    // Load DAO validator to get script address
+    const daoValidator = plutusJson.validators.find(
+      (v) => v.title === "dao.dao.spend"
+    );
+
+    if (!daoValidator) {
+      throw new Error("DAO validator not found in plutus.json");
+    }
+
+    const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
+    const network = process.env.NETWORK === "preview" ? 0 : 1;
+    const daoScriptAddress = Core.addressFromValidator(network, daoScript);
+
+    console.log(`Querying DAOs at address: ${daoScriptAddress.toBech32()}`);
+
+    // Get all UTXOs at the DAO script address
+    const utxos = await blazeMaestroProvider.getUnspentOutputs(
+      daoScriptAddress
+    );
+
+    const daos: DAOListItem[] = [];
+
+    for (const utxo of utxos) {
+      try {
+        const output = utxo.output();
+        const datum = output.datum();
+
+        if (!datum) {
+          console.warn("DAO UTXO missing datum, skipping");
+          continue;
+        }
+
+        // Extract PlutusData from Datum
+        let plutusData: Core.PlutusData | undefined;
+        try {
+          plutusData = datum.asInlineData();
+          if (!plutusData) {
+            console.warn("DAO UTXO has non-inline datum, skipping");
+            continue;
+          }
+        } catch (error) {
+          console.warn("Failed to extract inline datum, skipping");
+          continue;
+        }
+
+        // Parse DAO datum
+        const daoData = parseDAODatum(plutusData);
+        if (!daoData) {
+          console.warn("Failed to parse DAO datum, skipping");
+          continue;
+        }
+
+        // Extract DAO NFT from UTXO value to get policy ID and asset name
+        const value = output.amount().toCore();
+        let daoPolicyId = "";
+        let daoAssetName = "";
+
+        if (value.assets) {
+          for (const [assetId, quantity] of value.assets) {
+            if (quantity === 1n) {
+              // DAO NFTs have quantity 1
+              const policyId = Core.AssetId.getPolicyId(assetId);
+              const assetName = Core.AssetId.getAssetName(assetId);
+              daoPolicyId = policyId;
+              daoAssetName = assetName;
+              break;
+            }
+          }
+        }
+
+        if (!daoPolicyId || !daoAssetName) {
+          console.warn("No DAO NFT found in UTXO, skipping");
+          continue;
+        }
+
+        // Parse governance token (policy + asset concatenated in datum)
+        const govTokenHex = daoData.governance_token;
+        const govPolicyId = govTokenHex.slice(0, 56); // First 28 bytes
+        const govAssetName = govTokenHex.slice(56); // Remaining bytes
+
+        daos.push({
+          policyId: daoPolicyId,
+          assetName: daoAssetName,
+          name: daoData.name,
+          description: daoData.description ?? "",
+          governanceToken: {
+            policyId: govPolicyId,
+            assetName: govAssetName,
+            fullAssetId: Core.AssetId.fromParts(
+              Core.PolicyId(govPolicyId),
+              Core.AssetName(govAssetName)
+            ),
+          },
+          threshold: daoData.threshold,
+          quorum: daoData.quorum,
+          minProposalTime: daoData.min_proposal_time,
+          maxProposalTime: daoData.max_proposal_time,
+          minGovProposalCreate: daoData.min_gov_proposal_create,
+          utxoRef: {
+            txHash: utxo.input().transactionId(),
+            outputIndex: Number(utxo.input().index()),
+          },
+        });
+      } catch (error) {
+        console.error("Error processing DAO UTXO:", error);
+        continue;
+      }
+    }
+
+    console.log(`Found ${daos.length} DAOs`);
+
+    return NextResponse.json({
+      daos,
+      count: daos.length,
+    });
+  } catch (error) {
+    console.error("Error fetching DAO list:", error);
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to fetch DAOs",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+function parseDAODatum(datum: Core.PlutusData): any | null {
+  try {
+    // DAO datum is Constructor 0 with fields: [name, governance_token, threshold, ...]
+    const constr = datum.asConstrPlutusData();
+    if (!constr || constr.getAlternative() !== 0n) {
+      return null;
+    }
+
+    const fields = constr.getData();
+    if (fields.getLength() < 9) {
+      return null;
+    }
+
+    return {
+      name: new TextDecoder().decode(
+        fields.get(0).asBoundedBytes() ?? new Uint8Array()
+      ),
+      governance_token: Core.toHex(
+        fields.get(1).asBoundedBytes() ?? new Uint8Array()
+      ),
+      threshold: Number(fields.get(2).asInteger() ?? 0n),
+      min_proposal_time: Number(fields.get(3).asInteger() ?? 0n),
+      max_proposal_time: Number(fields.get(4).asInteger() ?? 0n),
+      quorum: Number(fields.get(5).asInteger() ?? 0n),
+      min_gov_proposal_create: Number(fields.get(6).asInteger() ?? 0n),
+      // whitelisted_proposals: fields.get(7) (List)
+      // whitelisted_actions: fields.get(8) (List)
+    };
+  } catch (error) {
+    console.error("Error parsing DAO datum:", error);
+    return null;
+  }
+}

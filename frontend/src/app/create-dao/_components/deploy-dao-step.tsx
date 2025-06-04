@@ -19,6 +19,19 @@ import {
 } from "lucide-react";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 
+type DeploymentState =
+  | "idle"
+  | "building"
+  | "signing"
+  | "submitting"
+  | "error-after-build";
+
+interface BuiltTxData {
+  unsignedTx: string;
+  daoPolicyId: string;
+  daoKey: string;
+}
+
 export default function DeployDaoStep() {
   const { wallet, connected } = useWallet();
   const {
@@ -30,7 +43,9 @@ export default function DeployDaoStep() {
     daoPolicyId,
   } = useDAOCreationStore();
 
-  const [isDeploying, setIsDeploying] = useState(false);
+  const [deploymentState, setDeploymentState] =
+    useState<DeploymentState>("idle");
+  const [builtTxData, setBuiltTxData] = useState<BuiltTxData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleDeploy = async () => {
@@ -39,70 +54,110 @@ export default function DeployDaoStep() {
       return;
     }
 
-    setIsDeploying(true);
     setError(null);
 
     try {
-      console.log("=== Starting DAO Deployment ===");
+      let txData = builtTxData;
 
-      const usedAddresses = await wallet.getUsedAddresses();
-      const address = usedAddresses[0];
-      const collateral = await wallet.getCollateral();
-      const changeAddress = await wallet.getChangeAddress();
+      if (!txData) {
+        setDeploymentState("building");
+        console.log("=== Starting DAO Deployment ===");
 
-      if (!collateral?.length) {
-        throw new Error("No collateral available");
+        const usedAddresses = await wallet.getUsedAddresses();
+        const address = usedAddresses[0];
+        const collateral = await wallet.getCollateral();
+        const changeAddress = await wallet.getChangeAddress();
+
+        if (!collateral?.length) {
+          throw new Error("No collateral available");
+        }
+
+        console.log("✓ Wallet data obtained");
+
+        const response = await fetch("/api/dao/deploy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            governanceToken,
+            daoConfig,
+            walletAddress: address,
+            collateral,
+            changeAddress,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(
+            errorData.error ?? "Failed to build deployment transaction"
+          );
+        }
+
+        txData = await response.json();
+        setBuiltTxData(txData);
       }
 
-      console.log("✓ Wallet data obtained");
-
-      const response = await fetch("/api/dao/deploy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          governanceToken,
-          daoConfig,
-          walletAddress: address,
-          collateral,
-          changeAddress,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.error ?? "Failed to build deployment transaction"
-        );
+      if (!txData) {
+        throw new Error("Failed to build deployment transaction");
       }
 
-      const {
-        unsignedTx,
-        daoPolicyId: deployedPolicyId,
-        daoKey,
-      } = await response.json();
+      setDeploymentState("signing");
+      console.log("Transaction built, signing...");
+      const signedTx = await wallet.signTx(txData.unsignedTx, true);
 
-      console.log("Transaction built on server, signing...");
-      const signedTx = await wallet.signTx(unsignedTx, true);
-
+      setDeploymentState("submitting");
       console.log("Submitting transaction...");
       const deployTxHash = await wallet.submitTx(signedTx);
 
       console.log("✓ DAO deployed:", deployTxHash);
-      console.log("✓ DAO Policy ID:", deployedPolicyId);
-      console.log("✓ DAO Key:", daoKey);
+      console.log("✓ DAO Policy ID:", txData.daoPolicyId);
+      console.log("✓ DAO Key:", txData.daoKey);
 
-      setDeployResults(deployTxHash, deployedPolicyId, daoKey);
+      setDeployResults(deployTxHash, txData.daoPolicyId, txData.daoKey);
+      setDeploymentState("idle");
+      setBuiltTxData(null);
     } catch (err: any) {
       console.error("❌ Deployment error:", err);
+
+      if (builtTxData) {
+        setDeploymentState("error-after-build");
+      } else {
+        setDeploymentState("idle");
+      }
+
       setError(err instanceof Error ? err.message : "Failed to deploy DAO");
-    } finally {
-      setIsDeploying(false);
     }
+  };
+
+  const handleVerifyDeployment = async () => {
+    // Placeholder for verification logic
+    console.log("Verify deployment clicked - need to implement");
   };
 
   const handleContinue = () => {
     setCurrentStep(3);
   };
+
+  const getButtonText = () => {
+    switch (deploymentState) {
+      case "building":
+        return "Building Transaction...";
+      case "signing":
+        return "Waiting for Signature...";
+      case "submitting":
+        return "Submitting Transaction...";
+      case "error-after-build":
+        return "Try Again";
+      default:
+        return "Deploy DAO";
+    }
+  };
+
+  const isDeployDisabled =
+    deploymentState === "building" ||
+    deploymentState === "signing" ||
+    deploymentState === "submitting" ||
+    !connected;
 
   if (daoTxHash) {
     return (
@@ -299,24 +354,34 @@ export default function DeployDaoStep() {
             <Button
               variant="outline"
               onClick={() => setCurrentStep(1)}
-              disabled={isDeploying}
+              disabled={deploymentState !== "idle"}
             >
               Back to Configuration
             </Button>
-            <Button
-              onClick={handleDeploy}
-              disabled={!connected || isDeploying}
-              className="min-w-[150px]"
-            >
-              {isDeploying ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deploying DAO...
-                </>
-              ) : (
-                "Deploy DAO"
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleDeploy}
+                disabled={isDeployDisabled}
+                className="min-w-[150px]"
+              >
+                {deploymentState !== "idle" &&
+                deploymentState !== "error-after-build" ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {getButtonText()}
+                  </>
+                ) : (
+                  getButtonText()
+                )}
+              </Button>
+
+              {deploymentState === "error-after-build" && (
+                <Button variant="outline" onClick={handleVerifyDeployment}>
+                  Verify Deployment
+                </Button>
               )}
-            </Button>
+            </div>
           </div>
 
           {!connected && (
