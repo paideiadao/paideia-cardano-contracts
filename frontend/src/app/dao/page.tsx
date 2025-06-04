@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useWallet } from "@meshsdk/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,16 +28,24 @@ import {
   Copy,
   Vote,
   Wallet,
+  AlertTriangle,
+  CheckCircle,
 } from "lucide-react";
 import { DAOInfo } from "@/app/api/dao/info/route";
+import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
+import Link from "next/link";
 
 export default function ViewDAOPage() {
   const searchParams = useSearchParams();
+  const { wallet, connected } = useWallet();
   const policyId = searchParams.get("policyId");
   const assetName = searchParams.get("assetName");
 
   const [daoInfo, setDaoInfo] = useState<DAOInfo | null>(null);
+  const [registrationStatus, setRegistrationStatus] =
+    useState<RegistrationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCheckingRegistration, setIsCheckingRegistration] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -51,6 +60,14 @@ export default function ViewDAOPage() {
       setIsLoading(false);
     }
   }, [policyId, assetName]);
+
+  useEffect(() => {
+    if (connected && wallet && policyId && assetName) {
+      checkRegistrationStatus();
+    } else {
+      setRegistrationStatus(null);
+    }
+  }, [connected, wallet, policyId, assetName]);
 
   const fetchDAOInfo = async () => {
     if (!policyId || !assetName) return;
@@ -77,6 +94,44 @@ export default function ViewDAOPage() {
     }
   };
 
+  const checkRegistrationStatus = async () => {
+    if (!connected || !wallet || !policyId || !assetName) return;
+
+    setIsCheckingRegistration(true);
+
+    try {
+      const usedAddresses = await wallet.getUsedAddresses();
+      const walletAddress = usedAddresses[0];
+
+      const response = await fetch("/api/dao/check-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daoPolicyId: policyId,
+          daoKey: assetName,
+          walletAddress,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to check registration");
+      }
+
+      const status = await response.json();
+      setRegistrationStatus(status);
+    } catch (err) {
+      console.error("Registration check failed:", err);
+      setRegistrationStatus({ isRegistered: false });
+    } finally {
+      setIsCheckingRegistration(false);
+    }
+  };
+
+  const handleCreateProposal = async () => {
+    // TODO: Implement create proposal flow
+    console.log("Create proposal clicked");
+  };
+
   const copyAddress = async (address: string) => {
     await navigator.clipboard.writeText(address);
   };
@@ -101,6 +156,84 @@ export default function ViewDAOPage() {
     const subdomain =
       process.env.NEXT_PUBLIC_NETWORK === "mainnet" ? "" : "preview.";
     return `https://${subdomain}cardanoscan.io${path}`;
+  };
+
+  const renderActionButtons = () => {
+    if (!connected) {
+      return (
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground mb-2">
+            Connect your wallet to participate
+          </p>
+          <Button variant="outline" disabled>
+            Connect Wallet to Continue
+          </Button>
+        </div>
+      );
+    }
+
+    if (isCheckingRegistration) {
+      return (
+        <Button disabled>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Checking Registration...
+        </Button>
+      );
+    }
+
+    if (!registrationStatus) {
+      return (
+        <Button variant="outline" disabled>
+          Unable to Check Registration
+        </Button>
+      );
+    }
+
+    if (!registrationStatus.isRegistered) {
+      return (
+        <Link
+          href={`/dao/register?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+        >
+          <Button>
+            <Vote className="mr-1 h-4 w-4" />
+            Register to Vote
+          </Button>
+        </Link>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <Button onClick={handleCreateProposal} className="w-full">
+          Create Proposal
+        </Button>
+
+        {registrationStatus.lockedGovernanceTokens && (
+          <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded border">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                Registered to Vote
+              </span>
+            </div>
+            <p className="text-sm text-green-700 dark:text-green-300">
+              {registrationStatus.lockedGovernanceTokens.toLocaleString()}{" "}
+              governance tokens locked
+            </p>
+
+            {!registrationStatus.voteUtxoExists && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Warning: Vote NFT found but vote UTXO is missing. Your
+                  registration may be invalid.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -147,13 +280,7 @@ export default function ViewDAOPage() {
               </div>
               <p className="text-muted-foreground">{daoInfo.description}</p>
             </div>
-            <div className="flex gap-2">
-              <Button>
-                <Vote className="mr-2 h-4 w-4" />
-                Join DAO
-              </Button>
-              <Button variant="outline">Create Proposal</Button>
-            </div>
+            <div>{renderActionButtons()}</div>
           </div>
         </CardHeader>
       </Card>
@@ -348,7 +475,11 @@ export default function ViewDAOPage() {
 
           <div className="text-center py-12">
             <p className="text-muted-foreground">No proposals found.</p>
-            <Button className="mt-4">Create First Proposal</Button>
+            {registrationStatus?.isRegistered && (
+              <Button className="mt-4" onClick={handleCreateProposal}>
+                Create First Proposal
+              </Button>
+            )}
           </div>
         </TabsContent>
 
