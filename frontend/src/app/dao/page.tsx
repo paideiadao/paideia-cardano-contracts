@@ -197,13 +197,17 @@ export default function ViewDAOPage() {
     }
 
     return (
-      <div className="space-y-3">
-        <Button onClick={handleCreateProposal} className="w-full">
-          Create Proposal
-        </Button>
-
-        {registrationStatus.lockedGovernanceTokens && (
-          <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded border">
+      <div>
+        <div className="flex flex-row gap-2 justify-end">
+          <Link
+            href={`/dao/unregister?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+          >
+            <Button variant="outline">Unregister Tokens</Button>
+          </Link>
+          <Button onClick={handleCreateProposal}>Create Proposal</Button>
+        </div>
+        {registrationStatus?.lockedGovernanceTokens && (
+          <div className="p-3 mt-3 bg-green-50 dark:bg-green-950/30 rounded border">
             <div className="flex items-center gap-2 mb-1">
               <CheckCircle className="h-4 w-4 text-green-600" />
               <span className="text-sm font-medium text-green-800 dark:text-green-200">
@@ -256,7 +260,7 @@ export default function ViewDAOPage() {
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between">
-            <div className="flex-1">
+            <div>
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold">{daoInfo.name}</h1>
                 <Button

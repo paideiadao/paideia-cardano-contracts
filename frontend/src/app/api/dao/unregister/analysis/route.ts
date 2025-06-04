@@ -8,13 +8,10 @@ import {
   findUserVoteUtxo,
   getVotePolicyId,
 } from "@/lib/server/helpers/vote-helpers";
-import { parseDAODatum } from "@/lib/server/helpers/dao-helpers";
-import {
-  addressFromScript,
-  getNetworkId,
-} from "@/lib/server/helpers/script-helpers";
+import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
+import { addressFromScript } from "@/lib/server/helpers/script-helpers";
 
-interface UnregisterAnalysisRequest {
+export interface UnregisterAnalysisRequest {
   daoPolicyId: string;
   daoKey: string;
   walletAddress: string;
@@ -206,48 +203,6 @@ async function analyzeVoteReceipts(
   return voteReceipts;
 }
 
-async function fetchDAOInfo(
-  daoPolicyId: string,
-  daoKey: string
-): Promise<{
-  governance_token: string;
-  whitelisted_proposals: string[];
-}> {
-  const daoValidator = plutusJson.validators.find(
-    (v) => v.title === "dao.dao.spend"
-  );
-
-  if (!daoValidator) {
-    throw new Error("DAO validator not found");
-  }
-
-  const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-  const daoScriptAddress = addressFromScript(daoScript);
-
-  const utxos = await blazeMaestroProvider.getUnspentOutputs(daoScriptAddress);
-
-  for (const utxo of utxos) {
-    const value = utxo.output().amount().toCore();
-    if (value.assets) {
-      for (const [assetId, quantity] of value.assets) {
-        if (quantity === 1n) {
-          const utxoPolicyId = Core.AssetId.getPolicyId(assetId);
-          const utxoAssetName = Core.AssetId.getAssetName(assetId);
-          if (utxoPolicyId === daoPolicyId && utxoAssetName === daoKey) {
-            const datum = utxo.output().datum()?.asInlineData();
-            if (!datum) {
-              throw new Error("DAO UTXO missing datum");
-            }
-            return parseDAODatum(datum);
-          }
-        }
-      }
-    }
-  }
-
-  throw new Error("DAO not found");
-}
-
 async function getProposalInfo(
   proposalPolicyId: string,
   proposalIdentifier: string
@@ -257,8 +212,8 @@ async function getProposalInfo(
   endTime?: number;
 } | null> {
   try {
-    // This would query proposal UTXOs to get current status
-    // For now, return null since proposal querying is complex
+    // TODO: This will query proposal UTXOs to get current status
+    // For now, return null
     return null;
   } catch (error) {
     return null;
@@ -267,7 +222,7 @@ async function getProposalInfo(
 
 async function extractOptionIndex(receiptAssetName: string): Promise<number> {
   // Vote receipt asset names encode the option index
-  // This would need to match the encoding from get_vote_receipt_identifier
+  // This will need to match the encoding from get_vote_receipt_identifier
   // For now, return 0 as placeholder
   return 0;
 }

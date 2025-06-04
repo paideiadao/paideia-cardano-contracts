@@ -22,7 +22,11 @@ interface UnregisterExecuteRequest {
   };
   voteNftAssetName: string;
   referenceAssetName: string;
-  endedVoteReceipts?: string[]; // Asset names of receipts to clean
+  endedVoteReceipts?: Array<{
+    assetName: string;
+    proposalPolicyId: string;
+    amount: number;
+  }>;
 }
 
 export async function POST(request: NextRequest) {
@@ -53,7 +57,7 @@ export async function POST(request: NextRequest) {
     const wallet = new ColdWallet(sendAddress, 0, blazeMaestroProvider);
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
-    // Get user's Vote NFT from wallet
+    // Refresh all UTXO queries to avoid stale references
     const userUtxos = await blazeMaestroProvider.getUnspentOutputs(sendAddress);
     const voteNftUtxo = findVoteNftUtxo(userUtxos, voteNftAssetName);
 
@@ -61,25 +65,24 @@ export async function POST(request: NextRequest) {
       throw new Error("Vote NFT not found in wallet");
     }
 
-    // Get Vote UTXO from script address
     const voteUtxo = await getVoteUtxo(daoPolicyId, daoKey, voteUtxoRef);
     if (!voteUtxo) {
-      throw new Error("Vote UTXO not found");
+      throw new Error("Vote UTXO not found or already spent");
     }
 
-    // Create vote script and get policy ID
+    // Verify vote receipts exist in the vote UTXO
+    const actualReceipts = validateVoteReceipts(voteUtxo, endedVoteReceipts);
+
     const voteScript = await createVoteScript(daoPolicyId, daoKey);
     const votePolicyId = voteScript.hash();
 
     console.debug(`🔑 Vote Policy ID: ${votePolicyId}`);
 
-    // Get DAO info for governance token details
     const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
     const govTokenHex = daoInfo.governance_token;
     const govPolicyId = govTokenHex.slice(0, 56);
     const govAssetName = govTokenHex.slice(56);
 
-    // Count governance tokens to return
     const governanceTokenAmount = await countGovernanceTokensInVoteUtxo(
       voteUtxo,
       govPolicyId,
@@ -88,7 +91,6 @@ export async function POST(request: NextRequest) {
 
     console.debug(`💰 Returning ${governanceTokenAmount} governance tokens`);
 
-    // Build transaction
     const tx = await buildUnregisterTransaction(blaze, {
       voteNftUtxo,
       voteUtxo,
@@ -99,7 +101,7 @@ export async function POST(request: NextRequest) {
       govPolicyId,
       govAssetName,
       governanceTokenAmount,
-      endedVoteReceipts,
+      endedVoteReceipts: actualReceipts,
       receiveAddress,
       daoInfo,
     });
@@ -109,7 +111,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       unsignedTx: tx.toCbor(),
       governanceTokensReturned: governanceTokenAmount,
-      receiptsCleaned: endedVoteReceipts.length,
+      receiptsCleaned: actualReceipts.length,
     });
   } catch (error) {
     console.error("❌ Server-side unregister error:", error);
@@ -126,6 +128,51 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function validateVoteReceipts(
+  voteUtxo: Core.TransactionUnspentOutput,
+  requestedReceipts: Array<{
+    assetName: string;
+    proposalPolicyId: string;
+    amount: number;
+  }>
+): Array<{
+  assetName: string;
+  proposalPolicyId: string;
+  amount: number;
+}> {
+  const voteValue = voteUtxo.output().amount().toCore();
+  const actualReceipts: Array<{
+    assetName: string;
+    proposalPolicyId: string;
+    amount: number;
+  }> = [];
+
+  if (!voteValue.assets) {
+    return actualReceipts;
+  }
+
+  for (const requestedReceipt of requestedReceipts) {
+    for (const [assetId, quantity] of voteValue.assets) {
+      const policyId = Core.AssetId.getPolicyId(assetId);
+      const assetName = Core.AssetId.getAssetName(assetId);
+
+      if (
+        policyId === requestedReceipt.proposalPolicyId &&
+        assetName === requestedReceipt.assetName
+      ) {
+        actualReceipts.push({
+          assetName,
+          proposalPolicyId: policyId,
+          amount: Number(quantity),
+        });
+        break;
+      }
+    }
+  }
+
+  return actualReceipts;
+}
+
 async function buildUnregisterTransaction(
   blaze: Blaze<any, any>,
   params: {
@@ -138,7 +185,11 @@ async function buildUnregisterTransaction(
     govPolicyId: string;
     govAssetName: string;
     governanceTokenAmount: number;
-    endedVoteReceipts: string[];
+    endedVoteReceipts: Array<{
+      assetName: string;
+      proposalPolicyId: string;
+      amount: number;
+    }>;
     receiveAddress: Core.Address;
     daoInfo: any;
   }
@@ -158,32 +209,38 @@ async function buildUnregisterTransaction(
     daoInfo,
   } = params;
 
-  // Create EmptyVote redeemer for spending Vote UTXO
   const emptyVoteSpendRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(3n, new Core.PlutusList()) // EmptyVote = constructor 3
+    new Core.ConstrPlutusData(3n, new Core.PlutusList())
   );
 
-  // Create EmptyVote redeemer for minting (burning NFTs)
   const emptyVoteMintRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(3n, new Core.PlutusList()) // EmptyVote = constructor 3
+    new Core.ConstrPlutusData(3n, new Core.PlutusList())
   );
 
-  // Create burn map for Vote NFTs
-  const burnMap: Map<Core.AssetName, bigint> = new Map();
-  burnMap.set(Core.AssetName(voteNftAssetName), -1n);
-  burnMap.set(Core.AssetName(referenceAssetName), -1n);
+  const cleanReceiptsRedeemer = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(2n, new Core.PlutusList())
+  );
 
-  // Add ended vote receipts to burn map if any
-  for (const receiptAssetName of endedVoteReceipts) {
-    // Find which proposal policy this receipt belongs to
-    for (const proposalPolicyId of daoInfo.whitelisted_proposals) {
-      // Note: In a full implementation, we'd need to verify this receipt
-      // actually belongs to an ended proposal from this policy
-      burnMap.set(Core.AssetName(receiptAssetName), -1n);
-    }
+  // Vote policy burns (reference + NFT tokens)
+  const voteBurnMap: Map<Core.AssetName, bigint> = new Map();
+  voteBurnMap.set(Core.AssetName(voteNftAssetName), -1n);
+  voteBurnMap.set(Core.AssetName(referenceAssetName), -1n);
+
+  // Group vote receipts by proposal policy
+  const receiptsByPolicy = new Map<
+    string,
+    Array<{ assetName: string; amount: number }>
+  >();
+
+  for (const receipt of endedVoteReceipts) {
+    const existing = receiptsByPolicy.get(receipt.proposalPolicyId) ?? [];
+    existing.push({
+      assetName: receipt.assetName,
+      amount: receipt.amount,
+    });
+    receiptsByPolicy.set(receipt.proposalPolicyId, existing);
   }
 
-  // Create value to return to user (governance tokens)
   const returnValue = Core.Value.fromCore({
     coins: 0n,
     assets: new Map([
@@ -199,25 +256,43 @@ async function buildUnregisterTransaction(
 
   let txBuilder = blaze
     .newTransaction()
-    .addInput(voteNftUtxo) // User's Vote NFT
-    .addInput(voteUtxo, emptyVoteSpendRedeemer) // Vote UTXO from script
+    .addInput(voteNftUtxo)
+    .addInput(voteUtxo, emptyVoteSpendRedeemer)
     .provideScript(voteScript)
-    .addMint(Core.PolicyId(votePolicyId), burnMap, emptyVoteMintRedeemer);
+    .addMint(Core.PolicyId(votePolicyId), voteBurnMap, emptyVoteMintRedeemer);
 
-  // Add DAO as reference input for vote receipt validation
   const daoUtxo = await getDaoUtxo(daoInfo.policyId, daoInfo.key);
   if (daoUtxo) {
     txBuilder = txBuilder.addReferenceInput(daoUtxo);
   }
 
-  // If cleaning ended vote receipts, we need proposal references too
-  if (endedVoteReceipts.length > 0) {
+  // Add proposal policy burns and reference inputs
+  if (receiptsByPolicy.size > 0) {
     const proposalUtxos = await getEndedProposalUtxos(
-      daoInfo.whitelisted_proposals,
-      endedVoteReceipts
+      Array.from(receiptsByPolicy.keys()),
+      endedVoteReceipts.map((r) => r.assetName)
     );
+
     for (const proposalUtxo of proposalUtxos) {
       txBuilder = txBuilder.addReferenceInput(proposalUtxo);
+    }
+
+    // Add burns for each proposal policy
+    for (const [proposalPolicyId, receipts] of receiptsByPolicy) {
+      const proposalBurnMap: Map<Core.AssetName, bigint> = new Map();
+
+      for (const receipt of receipts) {
+        proposalBurnMap.set(
+          Core.AssetName(receipt.assetName),
+          BigInt(-receipt.amount)
+        );
+      }
+
+      txBuilder = txBuilder.addMint(
+        Core.PolicyId(proposalPolicyId),
+        proposalBurnMap,
+        cleanReceiptsRedeemer
+      );
     }
   }
 

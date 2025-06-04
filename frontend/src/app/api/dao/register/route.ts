@@ -4,11 +4,12 @@ import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
 import plutusJson from "@/lib/scripts/plutus.json";
-import { parseDAODatum } from "@/lib/server/helpers/dao-helpers";
+import { fetchDAOInfo, parseDAODatum } from "@/lib/server/helpers/dao-helpers";
 import {
   addressFromScript,
   getNetworkId,
 } from "@/lib/server/helpers/script-helpers";
+import { createVoteScript } from "@/lib/server/helpers/vote-helpers";
 
 interface RegisterRequest {
   daoPolicyId: string;
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
     // Get DAO info and validate it exists
-    const { daoInfo, daoUtxo } = await fetchDAOInfo(daoPolicyId, daoKey);
+    const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
     console.debug(`✅ Found DAO: ${daoInfo.name}`);
 
     // Extract governance token details
@@ -115,7 +116,7 @@ export async function POST(request: NextRequest) {
     const tx = await buildRegistrationTransaction(blaze, {
       seedUtxo,
       governanceUtxos,
-      daoUtxo,
+      daoUtxo: daoInfo.utxo,
       voteScript,
       votePolicyId,
       referenceAssetName,
@@ -150,51 +151,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-async function fetchDAOInfo(
-  daoPolicyId: string,
-  daoKey: string
-): Promise<{
-  daoInfo: DAOInfo;
-  daoUtxo: Core.TransactionUnspentOutput;
-}> {
-  const daoValidator = plutusJson.validators.find(
-    (v) => v.title === "dao.dao.spend"
-  );
-
-  if (!daoValidator) {
-    throw new Error("DAO validator not found in plutus.json");
-  }
-
-  const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-  const daoScriptAddress = addressFromScript(daoScript);
-
-  const utxos = await blazeMaestroProvider.getUnspentOutputs(daoScriptAddress);
-
-  for (const utxo of utxos) {
-    const value = utxo.output().amount().toCore();
-    if (value.assets) {
-      for (const [assetId, quantity] of value.assets) {
-        if (quantity === 1n) {
-          const utxoPolicyId = Core.AssetId.getPolicyId(assetId);
-          const utxoAssetName = Core.AssetId.getAssetName(assetId);
-          if (utxoPolicyId === daoPolicyId && utxoAssetName === daoKey) {
-            const datum = utxo.output().datum()?.asInlineData();
-            if (!datum) {
-              throw new Error("DAO UTXO missing datum");
-            }
-            const daoInfo = parseDAODatum(datum);
-            return { daoInfo, daoUtxo: utxo };
-          }
-        }
-      }
-    }
-  }
-
-  throw new Error(
-    `DAO not found with Policy ID: ${daoPolicyId} and Key: ${daoKey}`
-  );
 }
 
 async function analyzeUserUTxOs(
@@ -251,27 +207,6 @@ async function analyzeUserUTxOs(
   governanceUtxos.sort((a, b) => (a.amount > b.amount ? -1 : 1));
 
   return { governanceUtxos, totalAvailable, seedUtxo };
-}
-
-async function createVoteScript(
-  daoPolicyId: string,
-  daoKey: string
-): Promise<Core.Script> {
-  const voteValidator = plutusJson.validators.find(
-    (v) => v.title === "vote.vote.mint"
-  );
-
-  if (!voteValidator) {
-    throw new Error("Vote validator not found in plutus.json");
-  }
-
-  const parameterizedVoteScript = (applyParamsToScript as any)(
-    voteValidator.compiledCode,
-    Type.Tuple([Type.String(), Type.String()]),
-    [daoPolicyId, daoKey]
-  );
-
-  return cborToScript(parameterizedVoteScript, "PlutusV3");
 }
 
 function createUniqueVoteIdentifier(

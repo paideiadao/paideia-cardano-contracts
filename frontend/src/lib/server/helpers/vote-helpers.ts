@@ -3,28 +3,18 @@ import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
-import { fetchDAOInfo } from "./dao-helpers";
-import { addressFromScript, getNetworkId } from "./script-helpers";
+import { countGovernanceTokens, fetchDAOInfo } from "./dao-helpers";
+import { addressFromScript, createParameterizedScript } from "./script-helpers";
 
 export async function getVotePolicyId(
   daoPolicyId: string,
   daoKey: string
 ): Promise<string> {
-  const voteValidator = plutusJson.validators.find(
-    (v) => v.title === "vote.vote.mint"
-  );
+  const voteScript = createParameterizedScript("vote.vote.mint", [
+    daoPolicyId,
+    daoKey,
+  ]);
 
-  if (!voteValidator) {
-    throw new Error("Vote validator not found");
-  }
-
-  const parameterizedVoteScript = (applyParamsToScript as any)(
-    voteValidator.compiledCode,
-    Type.Tuple([Type.String(), Type.String()]),
-    [daoPolicyId, daoKey]
-  );
-
-  const voteScript = cborToScript(parameterizedVoteScript, "PlutusV3");
   return voteScript.hash();
 }
 
@@ -32,21 +22,12 @@ export async function createVoteScript(
   daoPolicyId: string,
   daoKey: string
 ): Promise<Core.Script> {
-  const voteValidator = plutusJson.validators.find(
-    (v) => v.title === "vote.vote.mint"
-  );
+  const voteScript = createParameterizedScript("vote.vote.mint", [
+    daoPolicyId,
+    daoKey,
+  ]);
 
-  if (!voteValidator) {
-    throw new Error("Vote validator not found");
-  }
-
-  const parameterizedVoteScript = (applyParamsToScript as any)(
-    voteValidator.compiledCode,
-    Type.Tuple([Type.String(), Type.String()]),
-    [daoPolicyId, daoKey]
-  );
-
-  return cborToScript(parameterizedVoteScript, "PlutusV3");
+  return voteScript;
 }
 
 export function findVoteNftUtxo(
@@ -218,32 +199,71 @@ export async function findUserVoteUtxo(
   return null;
 }
 
-export async function countGovernanceTokens(
-  voteUtxo: Core.TransactionUnspentOutput,
+export async function checkVoteUtxo(
+  votePolicyId: string,
+  uniqueIdentifier: string,
   daoPolicyId: string,
   daoKey: string
-): Promise<number> {
+): Promise<{ exists: boolean; lockedTokens?: number }> {
   try {
-    const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
-    const govTokenHex = daoInfo.governance_token;
-    const govPolicyId = govTokenHex.slice(0, 56);
-    const govAssetName = govTokenHex.slice(56);
+    // Get vote script address
+    const voteValidator = plutusJson.validators.find(
+      (v) => v.title === "vote.vote.spend"
+    );
 
-    const value = voteUtxo.output().amount().toCore();
-    if (value.assets) {
-      for (const [assetId, quantity] of value.assets) {
-        const policyId = Core.AssetId.getPolicyId(assetId);
-        const assetNameFromId = Core.AssetId.getAssetName(assetId);
+    if (!voteValidator) {
+      throw new Error("Vote spend validator not found");
+    }
 
-        if (policyId === govPolicyId && assetNameFromId === govAssetName) {
-          return Number(quantity);
+    const parameterizedVoteScript = (applyParamsToScript as any)(
+      voteValidator.compiledCode,
+      Type.Tuple([Type.String(), Type.String()]),
+      [daoPolicyId, daoKey]
+    );
+
+    const voteScript = cborToScript(parameterizedVoteScript, "PlutusV3");
+    const voteScriptAddress = addressFromScript(voteScript);
+
+    // Get all vote UTXOs
+    const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
+      voteScriptAddress
+    );
+
+    // Look for UTXO with reference NFT matching our identifier
+    const referenceAssetName = "0000" + uniqueIdentifier;
+
+    for (const utxo of voteUtxos) {
+      const value = utxo.output().amount().toCore();
+      if (value.assets) {
+        for (const [assetId, quantity] of value.assets) {
+          const policyId = Core.AssetId.getPolicyId(assetId);
+          const assetName = Core.AssetId.getAssetName(assetId);
+
+          if (
+            policyId === votePolicyId &&
+            assetName === referenceAssetName &&
+            quantity === 1n
+          ) {
+            // Found the vote UTXO, now count governance tokens
+            const lockedTokens = await countGovernanceTokens(
+              utxo,
+              daoPolicyId,
+              daoKey
+            );
+            console.debug(
+              `📊 Found vote UTXO with ${lockedTokens} locked governance tokens`
+            );
+
+            return { exists: true, lockedTokens };
+          }
         }
       }
     }
 
-    return 0;
+    console.debug(`⚠️ Vote NFT found in wallet but no corresponding vote UTXO`);
+    return { exists: false };
   } catch (error) {
-    console.error("Error counting governance tokens:", error);
-    return 0;
+    console.error("Error checking vote UTXO:", error);
+    return { exists: false };
   }
 }

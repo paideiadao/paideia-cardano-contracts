@@ -3,9 +3,9 @@ import {
   addressFromScript,
   createParameterizedScript,
   extractInlineDatum,
-  findUTXOWithAsset,
   getUTXOsWithFallback,
 } from "./script-helpers";
+import { findUTXOWithAsset } from "./utxo-helpers";
 
 export interface FullDAODatum {
   name: string;
@@ -109,4 +109,34 @@ export function parseGovernanceToken(governanceTokenHex: string): {
       Core.AssetName(assetName)
     ),
   };
+}
+
+export async function countGovernanceTokens(
+  voteUtxo: Core.TransactionUnspentOutput,
+  daoPolicyId: string,
+  daoKey: string
+): Promise<number> {
+  try {
+    const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
+    const govTokenHex = daoInfo.governance_token;
+    const govPolicyId = govTokenHex.slice(0, 56);
+    const govAssetName = govTokenHex.slice(56);
+
+    const value = voteUtxo.output().amount().toCore();
+    if (value.assets) {
+      for (const [assetId, quantity] of value.assets) {
+        const policyId = Core.AssetId.getPolicyId(assetId);
+        const assetNameFromId = Core.AssetId.getAssetName(assetId);
+
+        if (policyId === govPolicyId && assetNameFromId === govAssetName) {
+          return Number(quantity);
+        }
+      }
+    }
+
+    return 0;
+  } catch (error) {
+    console.error("Error counting governance tokens:", error);
+    return 0;
+  }
 }
