@@ -4,12 +4,13 @@ import { blazeMaestroProvider } from "@/lib/server/blaze";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
+import { parseDAODatum } from "@/lib/server/helpers/dao-helpers";
+import { addressFromScript } from "@/lib/server/helpers/script-helpers";
 
 export interface DAOInfo {
   policyId: string;
   assetName: string;
   name: string;
-  description: string;
   governanceToken: {
     policyId: string;
     assetName: string;
@@ -68,8 +69,7 @@ export async function GET(request: NextRequest) {
     }
 
     const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-    const network = process.env.NETWORK === "preview" ? 0 : 1;
-    const daoScriptAddress = Core.addressFromValidator(network, daoScript);
+    const daoScriptAddress = addressFromScript(daoScript);
 
     const utxos = await blazeMaestroProvider.getUnspentOutputs(
       daoScriptAddress
@@ -124,7 +124,6 @@ export async function GET(request: NextRequest) {
       policyId,
       assetName,
       name: daoData.name,
-      description: daoData.description ?? "",
       governanceToken: {
         policyId: govPolicyId,
         assetName: govAssetName,
@@ -179,8 +178,7 @@ async function getTreasuryInfo(daoPolicyId: string, daoKey: string) {
       parameterizedTreasuryScript,
       "PlutusV3"
     );
-    const network = process.env.NETWORK === "preview" ? 0 : 1;
-    const treasuryAddress = Core.addressFromValidator(network, treasuryScript);
+    const treasuryAddress = addressFromScript(treasuryScript);
 
     let assets: any[] = [];
     let totalValueAda = "0";
@@ -227,36 +225,5 @@ async function getTreasuryInfo(daoPolicyId: string, daoKey: string) {
       assets: [],
       totalValueAda: "0",
     };
-  }
-}
-
-function parseDAODatum(datum: Core.PlutusData): any | null {
-  try {
-    const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) {
-      return null;
-    }
-
-    const fields = constr.getData();
-    if (fields.getLength() < 9) {
-      return null;
-    }
-
-    return {
-      name: new TextDecoder().decode(
-        fields.get(0).asBoundedBytes() ?? new Uint8Array()
-      ),
-      governance_token: Core.toHex(
-        fields.get(1).asBoundedBytes() ?? new Uint8Array()
-      ),
-      threshold: Number(fields.get(2).asInteger() ?? 0n),
-      min_proposal_time: Number(fields.get(3).asInteger() ?? 0n),
-      max_proposal_time: Number(fields.get(4).asInteger() ?? 0n),
-      quorum: Number(fields.get(5).asInteger() ?? 0n),
-      min_gov_proposal_create: Number(fields.get(6).asInteger() ?? 0n),
-    };
-  } catch (error) {
-    console.error("Error parsing DAO datum:", error);
-    return null;
   }
 }

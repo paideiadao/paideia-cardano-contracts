@@ -4,6 +4,11 @@ import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
 import plutusJson from "@/lib/scripts/plutus.json";
+import { parseDAODatum } from "@/lib/server/helpers/dao-helpers";
+import {
+  addressFromScript,
+  getNetworkId,
+} from "@/lib/server/helpers/script-helpers";
 
 interface RegisterRequest {
   daoPolicyId: string;
@@ -163,8 +168,7 @@ async function fetchDAOInfo(
   }
 
   const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-  const network = process.env.NETWORK === "preview" ? 0 : 1;
-  const daoScriptAddress = Core.addressFromValidator(network, daoScript);
+  const daoScriptAddress = addressFromScript(daoScript);
 
   const utxos = await blazeMaestroProvider.getUnspentOutputs(daoScriptAddress);
 
@@ -362,10 +366,7 @@ async function buildRegistrationTransaction(
   mintMap.set(Core.AssetName(voteNftAssetName), 1n);
 
   // Vote script address
-  const voteScriptAddress = Core.addressFromValidator(
-    walletAddress.startsWith("addr_test") ? 0 : 1,
-    voteScript
-  );
+  const voteScriptAddress = addressFromScript(voteScript);
 
   // Vote UTXO value (reference NFT + governance tokens)
   const voteValue = Core.Value.fromCore({
@@ -441,26 +442,4 @@ function createVoteDatum(): Core.PlutusData {
   return Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(0n, fieldsList)
   );
-}
-
-function parseDAODatum(datum: Core.PlutusData): DAOInfo {
-  const constr = datum.asConstrPlutusData();
-  if (!constr || constr.getAlternative() !== 0n) {
-    throw new Error("Invalid DAO datum structure");
-  }
-
-  const fields = constr.getData();
-  if (fields.getLength() < 9) {
-    throw new Error("DAO datum missing fields");
-  }
-
-  return {
-    name: new TextDecoder().decode(
-      fields.get(0).asBoundedBytes() ?? new Uint8Array()
-    ),
-    governance_token: Core.toHex(
-      fields.get(1).asBoundedBytes() ?? new Uint8Array()
-    ),
-    min_gov_proposal_create: Number(fields.get(6).asInteger() ?? 0n),
-  };
 }

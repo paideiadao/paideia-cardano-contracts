@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { DAOListItem } from "@/app/api/dao/list/route";
+import { getExplorerUrl } from "@/lib/utils";
 
 export default function BrowseDAOsPage() {
   const [daos, setDaos] = useState<DAOListItem[]>([]);
@@ -32,10 +33,8 @@ export default function BrowseDAOsPage() {
     if (!searchTerm.trim()) {
       setFilteredDaos(daos);
     } else {
-      const filtered = daos.filter(
-        (dao) =>
-          dao.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          dao.description.toLowerCase().includes(searchTerm.toLowerCase())
+      const filtered = daos.filter((dao) =>
+        dao.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
       setFilteredDaos(filtered);
     }
@@ -158,20 +157,16 @@ export default function BrowseDAOsPage() {
                   <CardTitle className="text-lg line-clamp-1">
                     {dao.name}
                   </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                  {/* <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                     {dao.description || "No description available"}
-                  </p>
+                  </p> */}
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() =>
                     window.open(
-                      `https://${
-                        process.env.NEXT_PUBLIC_NETWORK === "mainnet"
-                          ? ""
-                          : "preview."
-                      }cardanoscan.io/transaction/${dao.utxoRef.txHash}`,
+                      getExplorerUrl(`/transaction/${dao.utxoRef.txHash}`),
                       "_blank"
                     )
                   }

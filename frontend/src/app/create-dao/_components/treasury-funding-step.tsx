@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 import { Transaction, BrowserWallet } from "@meshsdk/core";
+import { getExplorerUrl } from "@/lib/utils";
 
 interface TreasuryAsset {
   unit: string;
@@ -49,7 +50,6 @@ export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
   const [isFunding, setIsFunding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<string>("");
-  const [networkFromApi, setNetworkFromApi] = useState("mainnet");
 
   useEffect(() => {
     loadTreasuryInfo();
@@ -72,7 +72,6 @@ export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
       if (!response.ok) throw new Error("Failed to load treasury info");
 
       const { address, assets, network } = await response.json();
-      setNetworkFromApi(network);
       setTreasuryAddress(address);
       setTreasuryAssets(assets ?? []);
     } catch (err) {
@@ -135,11 +134,6 @@ export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
     const lovelace = treasuryAssets.find((asset) => asset.unit === "lovelace");
     if (!lovelace) return "0";
     return (parseInt(lovelace.quantity) / 1_000_000).toFixed(2);
-  };
-
-  const getExplorerUrl = (path: string) => {
-    const subdomain = networkFromApi === "mainnet" ? "" : `${networkFromApi}.`;
-    return `https://${subdomain}cardanoscan.io${path}`;
   };
 
   if (isLoading) {
@@ -295,7 +289,7 @@ export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
                       size="sm"
                       onClick={() =>
                         window.open(
-                          `https://cardanoscan.io/transaction/${lastTxHash}`,
+                          getExplorerUrl(`/transaction/${lastTxHash}`),
                           "_blank"
                         )
                       }

@@ -13,7 +13,7 @@ export interface GovernanceTokenInfo {
 
 export interface DAOConfig {
   name: string;
-  description: string;
+  // description: string; // dao data doesn't have a description field
   threshold: number; // Percentage needed to pass
   minProposalTime: number; // Minutes
   maxProposalTime: number; // Minutes

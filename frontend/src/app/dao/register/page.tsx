@@ -30,6 +30,7 @@ import {
   Vote,
 } from "lucide-react";
 import { DAOInfo } from "@/app/api/dao/info/route";
+import { getExplorerUrl } from "@/lib/utils";
 
 type RegistrationState = "idle" | "building" | "signing" | "submitting";
 
@@ -263,7 +264,7 @@ export default function RegisterPage() {
                   size="sm"
                   onClick={() =>
                     window.open(
-                      `https://cardanoscan.io/transaction/${success.txHash}`,
+                      getExplorerUrl(`/transaction/${success.txHash}`),
                       "_blank"
                     )
                   }

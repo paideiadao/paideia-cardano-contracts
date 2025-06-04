@@ -39,7 +39,7 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
 
   const [config, setConfig] = useState<DAOConfig>({
     name: "",
-    description: "",
+    // description: "", // dao data does not have a description field
     threshold: 60, // From test_dao_datum
     minProposalTime: 40, // 2400 seconds = 40 minutes
     maxProposalTime: 47, // 2800 seconds = 47 minutes
@@ -70,17 +70,17 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     }
 
     // Description validation
-    if (!configToValidate.description.trim()) {
-      validationErrors.push({
-        field: "description",
-        message: "Description is required",
-      });
-    } else if (configToValidate.description.length > 500) {
-      validationErrors.push({
-        field: "description",
-        message: "Description must be 500 characters or less",
-      });
-    }
+    // if (!configToValidate.description.trim()) {
+    //   validationErrors.push({
+    //     field: "description",
+    //     message: "Description is required",
+    //   });
+    // } else if (configToValidate.description.length > 500) {
+    //   validationErrors.push({
+    //     field: "description",
+    //     message: "Description must be 500 characters or less",
+    //   });
+    // }
 
     // Threshold validation (contract enforces 1-100)
     if (configToValidate.threshold < 1 || configToValidate.threshold > 100) {
@@ -173,8 +173,8 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     return errors.some((error) => error.field === field);
   };
 
-  const isFormValid =
-    errors.length === 0 && config.name.trim() && config.description.trim();
+  const isFormValid = errors.length === 0 && config.name.trim();
+  // && config.description.trim();
 
   // Calculate contract values for display
   const minProposalTimeSeconds = config.minProposalTime * 60;
@@ -301,10 +301,11 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                 <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
-                  value={config.description}
-                  onChange={(e) =>
-                    handleInputChange("description", e.target.value)
-                  }
+                  disabled
+                  value="Currently the DAO metadata object doesn't contain a description field. Coming in V2"
+                  // onChange={(e) =>
+                  //   handleInputChange("description", e.target.value)
+                  // }
                   placeholder="Describe your DAO's purpose and goals..."
                   className={
                     hasFieldError("description") ? "border-red-500" : ""
@@ -319,7 +320,8 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                     </p>
                   )}
                   <p className="text-sm text-muted-foreground ml-auto">
-                    {config.description.length}/500
+                    {/* {config.description.length}/500 */}
+                    0/500
                   </p>
                 </div>
               </div>

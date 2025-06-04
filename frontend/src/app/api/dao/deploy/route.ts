@@ -7,6 +7,7 @@ import {
   GovernanceTokenInfo,
   DAOConfig,
 } from "@/lib/stores/dao-creation-store";
+import { addressFromScript } from "@/lib/server/helpers/script-helpers";
 
 interface DeployDAORequest {
   governanceToken: GovernanceTokenInfo;
@@ -164,14 +165,7 @@ export async function POST(request: NextRequest) {
       .addInput(firstUtxo)
       .provideScript(daoScript)
       .addMint(Core.PolicyId(daoPolicyId), mintMap, daoRedeemer)
-      .lockAssets(
-        Core.addressFromValidator(
-          walletAddress.startsWith("addr_test") ? 0 : 1,
-          daoScript
-        ),
-        daoValue,
-        daoDatum
-      )
+      .lockAssets(addressFromScript(daoScript), daoValue, daoDatum)
       .complete();
 
     console.debug("✅ DAO deployment transaction built successfully");

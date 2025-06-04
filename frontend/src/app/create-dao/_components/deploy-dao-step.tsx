@@ -18,6 +18,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
+import { getExplorerUrl } from "@/lib/utils";
 
 type DeploymentState =
   | "idle"
@@ -180,7 +181,7 @@ export default function DeployDaoStep() {
                   size="sm"
                   onClick={() =>
                     window.open(
-                      `https://cardanoscan.io/transaction/${daoTxHash}`,
+                      getExplorerUrl(`/transaction/${daoTxHash}`),
                       "_blank"
                     )
                   }
@@ -207,10 +208,10 @@ export default function DeployDaoStep() {
                     <span className="text-muted-foreground">Name:</span>{" "}
                     {daoConfig?.name}
                   </p>
-                  <p>
+                  {/* <p>
                     <span className="text-muted-foreground">Description:</span>{" "}
                     {daoConfig?.description}
-                  </p>
+                  </p> */}
                   <p>
                     <span className="text-muted-foreground">Policy ID:</span>{" "}
                     {daoPolicyId}

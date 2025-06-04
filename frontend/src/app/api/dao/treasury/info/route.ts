@@ -4,6 +4,10 @@ import { blazeMaestroProvider } from "@/lib/server/blaze";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
+import {
+  addressFromScript,
+  getNetworkId,
+} from "@/lib/server/helpers/script-helpers";
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,8 +45,7 @@ export async function POST(request: NextRequest) {
     );
 
     // Get treasury address (script address)
-    const network = process.env.NETWORK === "preview" ? 0 : 1;
-    const treasuryAddress = Core.addressFromValidator(network, treasuryScript);
+    const treasuryAddress = addressFromScript(treasuryScript);
 
     // Get treasury UTXOs and extract assets
     let assets: any[] = [];

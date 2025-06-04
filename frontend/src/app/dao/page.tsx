@@ -6,7 +6,6 @@ import { useWallet } from "@meshsdk/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
@@ -34,6 +33,7 @@ import {
 import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import Link from "next/link";
+import { getExplorerUrl } from "@/lib/utils";
 
 export default function ViewDAOPage() {
   const searchParams = useSearchParams();
@@ -150,12 +150,6 @@ export default function ViewDAOPage() {
     const num = parseInt(quantity);
     if (decimals === 0) return num.toLocaleString();
     return (num / Math.pow(10, decimals)).toLocaleString();
-  };
-
-  const getExplorerUrl = (path: string) => {
-    const subdomain =
-      process.env.NEXT_PUBLIC_NETWORK === "mainnet" ? "" : "preview.";
-    return `https://${subdomain}cardanoscan.io${path}`;
   };
 
   const renderActionButtons = () => {
@@ -278,7 +272,6 @@ export default function ViewDAOPage() {
                   <ExternalLink className="h-4 w-4" />
                 </Button>
               </div>
-              <p className="text-muted-foreground">{daoInfo.description}</p>
             </div>
             <div>{renderActionButtons()}</div>
           </div>
