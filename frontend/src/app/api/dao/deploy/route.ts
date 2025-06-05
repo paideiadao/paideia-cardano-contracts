@@ -7,7 +7,10 @@ import {
   GovernanceTokenInfo,
   DAOConfig,
 } from "@/lib/stores/dao-creation-store";
-import { addressFromScript } from "@/lib/server/helpers/script-helpers";
+import {
+  addressFromScript,
+  getScriptPolicyId,
+} from "@/lib/server/helpers/script-helpers";
 
 interface DeployDAORequest {
   governanceToken: GovernanceTokenInfo;
@@ -77,24 +80,9 @@ export async function POST(request: NextRequest) {
 
     // Create scripts and get their policy IDs (hashes)
     const daoScript = cborToScript(daoValidator.compiledCode, "PlutusV3");
-    const proposalScript = cborToScript(
-      proposalValidator.compiledCode,
-      "PlutusV3"
-    );
-    const actionSendFundsScript = cborToScript(
-      actionSendFundsValidator.compiledCode,
-      "PlutusV3"
-    );
-
     const daoPolicyId = daoScript.hash();
-    const proposalPolicyId = proposalScript.hash();
-    const actionSendFundsPolicyId = actionSendFundsScript.hash();
 
-    console.debug(`🔑 DAO Policy ID: ${daoPolicyId}`);
-    console.debug(`🔑 Proposal Policy ID: ${proposalPolicyId}`);
-    console.debug(`🔑 Action Send Funds Policy ID: ${actionSendFundsPolicyId}`);
-
-    // Create unique DAO identifier from first UTXO
+    // Create unique DAO identifier first
     const outputRefData = Core.PlutusData.newConstrPlutusData(
       new Core.ConstrPlutusData(
         0n,
@@ -116,6 +104,27 @@ export async function POST(request: NextRequest) {
     const outputRefCbor = outputRefData.toCbor();
     const daoKey = Core.blake2b_256(outputRefCbor);
 
+    // Get vote policy ID
+    const votePolicyId = getScriptPolicyId("vote.vote.mint", [
+      daoPolicyId,
+      daoKey,
+    ]);
+
+    // Now parameterize the proposal and action scripts correctly
+    const proposalPolicyId = getScriptPolicyId("proposal.proposal.mint", [
+      daoPolicyId,
+      daoKey,
+      votePolicyId,
+    ]);
+
+    const actionSendFundsPolicyId = getScriptPolicyId(
+      "action_send_funds.action_send_funds.mint",
+      [daoPolicyId, daoKey]
+    );
+
+    console.debug(`🔑 DAO Policy ID: ${daoPolicyId}`);
+    console.debug(`🔑 Proposal Policy ID: ${proposalPolicyId}`);
+    console.debug(`🔑 Action Send Funds Policy ID: ${actionSendFundsPolicyId}`);
     console.debug(`🔑 DAO Key: ${daoKey}`);
     console.debug(`🔑 DAO Key length: ${daoKey.length / 2} bytes`);
 
@@ -214,14 +223,14 @@ function createDAODatum(
   // threshold: Int
   fieldsList.add(Core.PlutusData.newInteger(BigInt(daoConfig.threshold)));
 
-  // min_proposal_time: Int (convert minutes to seconds)
+  // min_proposal_time: Int (convert minutes to milliseconds)
   fieldsList.add(
-    Core.PlutusData.newInteger(BigInt(daoConfig.minProposalTime * 60))
+    Core.PlutusData.newInteger(BigInt(daoConfig.minProposalTime * 60 * 1000))
   );
 
-  // max_proposal_time: Int (convert minutes to seconds)
+  // max_proposal_time: Int (convert minutes to milliseconds)
   fieldsList.add(
-    Core.PlutusData.newInteger(BigInt(daoConfig.maxProposalTime * 60))
+    Core.PlutusData.newInteger(BigInt(daoConfig.maxProposalTime * 60 * 1000))
   );
 
   // quorum: Int

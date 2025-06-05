@@ -70,36 +70,59 @@ export async function countGovernanceTokensInVoteUtxo(
 export async function getVoteUtxo(
   daoPolicyId: string,
   daoKey: string,
-  voteUtxoRef: { txHash: string; outputIndex: number }
+  voteUtxoRef: { txHash: string; outputIndex: number },
+  options?: { enableLogging?: boolean }
 ): Promise<Core.TransactionUnspentOutput | null> {
-  const voteValidator = plutusJson.validators.find(
-    (v) => v.title === "vote.vote.spend"
-  );
+  try {
+    const voteScript = createParameterizedScript("vote.vote.spend", [
+      daoPolicyId,
+      daoKey,
+    ]);
+    const voteScriptAddress = addressFromScript(voteScript);
 
-  if (!voteValidator) {
-    throw new Error("Vote spend validator not found");
-  }
+    if (options?.enableLogging) {
+      console.log("🔍 VOTE UTXO SEARCH:");
+      console.log("Vote script address:", voteScriptAddress.toBech32());
+      console.log("Looking for UTXO:", voteUtxoRef);
+      console.log("DAO Policy ID:", daoPolicyId);
+    }
 
-  const parameterizedVoteScript = (applyParamsToScript as any)(
-    voteValidator.compiledCode,
-    Type.Tuple([Type.String(), Type.String()]),
-    [daoPolicyId, daoKey]
-  );
+    const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
+      voteScriptAddress
+    );
 
-  const voteScript = cborToScript(parameterizedVoteScript, "PlutusV3");
-  const voteScriptAddress = addressFromScript(voteScript);
+    if (options?.enableLogging) {
+      console.log("Found vote UTXOs:", voteUtxos.length);
+      voteUtxos.forEach((utxo, i) => {
+        console.log(`Vote UTXO ${i}:`, {
+          txHash: utxo.input().transactionId(),
+          outputIndex: utxo.input().index(),
+          value: utxo.output().amount().toCore(),
+        });
+      });
+    }
 
-  const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
-    voteScriptAddress
-  );
-
-  return (
-    voteUtxos.find(
+    const foundUtxo = voteUtxos.find(
       (utxo) =>
         utxo.input().transactionId() === voteUtxoRef.txHash &&
         Number(utxo.input().index()) === voteUtxoRef.outputIndex
-    ) ?? null
-  );
+    );
+
+    if (options?.enableLogging) {
+      console.log("Vote UTXO found:", !!foundUtxo);
+    }
+
+    return foundUtxo ?? null;
+  } catch (error) {
+    if (options?.enableLogging) {
+      console.error("Error fetching vote UTXO:", error);
+    }
+    throw new Error(
+      `Failed to fetch vote UTXO: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
 }
 
 export async function findUserVoteUtxo(
@@ -108,12 +131,11 @@ export async function findUserVoteUtxo(
   daoPolicyId: string,
   daoKey: string
 ) {
-  // First find user's Vote NFT to get unique identifier
   const userAddress = Core.addressFromBech32(walletAddress);
   const userUtxos = await blazeMaestroProvider.getUnspentOutputs(userAddress);
 
-  let voteNftAssetName: string | undefined;
-  let uniqueIdentifier: string | undefined;
+  // Collect ALL Vote NFTs the user has
+  const userVoteNfts: Array<{ assetName: string; uniqueId: string }> = [];
 
   for (const utxo of userUtxos) {
     const value = utxo.output().amount().toCore();
@@ -121,26 +143,25 @@ export async function findUserVoteUtxo(
       for (const [assetId, quantity] of value.assets) {
         const policyId = Core.AssetId.getPolicyId(assetId);
         const assetName = Core.AssetId.getAssetName(assetId);
-
         if (
           policyId === votePolicyId &&
           assetName.startsWith("0001") &&
           quantity === 1n
         ) {
-          voteNftAssetName = assetName;
-          uniqueIdentifier = assetName.slice(4);
-          break;
+          userVoteNfts.push({
+            assetName,
+            uniqueId: assetName.slice(4),
+          });
         }
       }
     }
-    if (voteNftAssetName) break;
   }
 
-  if (!voteNftAssetName || !uniqueIdentifier) {
+  if (userVoteNfts.length === 0) {
     return null;
   }
 
-  // Find corresponding Vote UTXO
+  // Get Vote UTXOs
   const voteValidator = plutusJson.validators.find(
     (v) => v.title === "vote.vote.spend"
   );
@@ -157,40 +178,45 @@ export async function findUserVoteUtxo(
 
   const voteScript = cborToScript(parameterizedVoteScript, "PlutusV3");
   const voteScriptAddress = addressFromScript(voteScript);
-
   const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
     voteScriptAddress
   );
 
-  const referenceAssetName = "0000" + uniqueIdentifier;
+  // Try to find a matching Vote UTXO for each Vote NFT the user has
+  for (const voteNft of userVoteNfts) {
+    const referenceAssetName = "0000" + voteNft.uniqueId;
 
-  for (const utxo of voteUtxos) {
-    const value = utxo.output().amount().toCore();
-    if (value.assets) {
-      for (const [assetId, quantity] of value.assets) {
-        const policyId = Core.AssetId.getPolicyId(assetId);
-        const assetName = Core.AssetId.getAssetName(assetId);
+    for (const utxo of voteUtxos) {
+      const value = utxo.output().amount().toCore();
+      if (value.assets) {
+        for (const [assetId, quantity] of value.assets) {
+          const policyId = Core.AssetId.getPolicyId(assetId);
+          const assetName = Core.AssetId.getAssetName(assetId);
 
-        if (
-          policyId === votePolicyId &&
-          assetName === referenceAssetName &&
-          quantity === 1n
-        ) {
-          const lockedTokens = await countGovernanceTokens(
-            utxo,
-            daoPolicyId,
-            daoKey
-          );
+          if (
+            policyId === votePolicyId &&
+            assetName === referenceAssetName &&
+            quantity === 1n
+          ) {
+            // Found matching pair! Check if it has governance tokens
+            const lockedTokens = await countGovernanceTokens(
+              utxo,
+              daoPolicyId,
+              daoKey
+            );
 
-          return {
-            utxo: {
-              txHash: utxo.input().transactionId(),
-              outputIndex: Number(utxo.input().index()),
-            },
-            lockedGovernanceTokens: lockedTokens,
-            voteNftAssetName,
-            referenceAssetName,
-          };
+            if (lockedTokens > 0) {
+              return {
+                utxo: {
+                  txHash: utxo.input().transactionId(),
+                  outputIndex: Number(utxo.input().index()),
+                },
+                lockedGovernanceTokens: lockedTokens,
+                voteNftAssetName: voteNft.assetName,
+                referenceAssetName,
+              };
+            }
+          }
         }
       }
     }

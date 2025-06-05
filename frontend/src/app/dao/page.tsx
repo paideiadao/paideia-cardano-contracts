@@ -34,6 +34,7 @@ import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import Link from "next/link";
 import { getExplorerUrl } from "@/lib/utils";
+import { ProposalsSection } from "@/components/dao/proposals-section";
 
 export default function ViewDAOPage() {
   const searchParams = useSearchParams();
@@ -127,11 +128,6 @@ export default function ViewDAOPage() {
     }
   };
 
-  const handleCreateProposal = async () => {
-    // TODO: Implement create proposal flow
-    console.log("Create proposal clicked");
-  };
-
   const copyAddress = async (address: string) => {
     await navigator.clipboard.writeText(address);
   };
@@ -204,7 +200,11 @@ export default function ViewDAOPage() {
           >
             <Button variant="outline">Unregister Tokens</Button>
           </Link>
-          <Button onClick={handleCreateProposal}>Create Proposal</Button>
+          <Link
+            href={`/dao/create-proposal?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+          >
+            <Button>Create Proposal</Button>
+          </Link>
         </div>
         {registrationStatus?.lockedGovernanceTokens && (
           <div className="p-3 mt-3 bg-green-50 dark:bg-green-950/30 rounded border">
@@ -361,7 +361,7 @@ export default function ViewDAOPage() {
                       Min Duration
                     </p>
                     <p className="text-lg font-semibold">
-                      {formatDuration(daoInfo.minProposalTime)}
+                      {formatDuration(daoInfo.minProposalTime / 1000)}
                     </p>
                   </div>
                   <div>
@@ -369,7 +369,7 @@ export default function ViewDAOPage() {
                       Max Duration
                     </p>
                     <p className="text-lg font-semibold">
-                      {formatDuration(daoInfo.maxProposalTime)}
+                      {formatDuration(daoInfo.maxProposalTime / 1000)}
                     </p>
                   </div>
                 </div>
@@ -432,52 +432,11 @@ export default function ViewDAOPage() {
         </TabsContent>
 
         <TabsContent value="proposals" className="space-y-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search proposals..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="passed">Passed</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="newest">Newest</SelectItem>
-                    <SelectItem value="oldest">Oldest</SelectItem>
-                    <SelectItem value="ending-soon">Ending Soon</SelectItem>
-                    <SelectItem value="most-votes">Most Votes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No proposals found.</p>
-            {registrationStatus?.isRegistered && (
-              <Button className="mt-4" onClick={handleCreateProposal}>
-                Create First Proposal
-              </Button>
-            )}
-          </div>
+          <ProposalsSection
+            daoPolicyId={daoInfo.policyId}
+            daoKey={assetName!}
+            isUserRegistered={registrationStatus?.isRegistered ?? false}
+          />
         </TabsContent>
 
         <TabsContent value="treasury" className="space-y-6">

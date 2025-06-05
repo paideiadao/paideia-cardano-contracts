@@ -2,6 +2,7 @@ import { applyParamsToScript, cborToScript, Core } from "@blaze-cardano/sdk";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { Type } from "@blaze-cardano/data";
 import { blazeMaestroProvider } from "../blaze";
+import { maestroProvider } from "../maestro";
 
 export function createParameterizedScript(
   validatorTitle: string,
@@ -130,4 +131,62 @@ export function aggregateAssets(
     unit,
     quantity: quantity.toString(),
   }));
+}
+
+function normalizeNetworkName(
+  network: string
+): keyof typeof Core.SLOT_CONFIG_NETWORK {
+  const normalized =
+    network.charAt(0).toUpperCase() + network.slice(1).toLowerCase();
+
+  if (
+    normalized === "Mainnet" ||
+    normalized === "Preview" ||
+    normalized === "Preprod"
+  ) {
+    return normalized;
+  }
+
+  throw new Error(`Unsupported network: ${network}`);
+}
+
+export function getCurrentSlot(): bigint {
+  const network = normalizeNetworkName(process.env.NETWORK!);
+  const slotConfig = Core.SLOT_CONFIG_NETWORK[network];
+  const currentTime = Date.now(); // Keep in milliseconds
+  const slotsSinceZero = Math.floor(
+    (currentTime - slotConfig.zeroTime) / slotConfig.slotLength
+  );
+  return BigInt(slotConfig.zeroSlot + slotsSinceZero);
+}
+
+export function slotToTimestamp(slot: bigint): number {
+  const network = normalizeNetworkName(process.env.NETWORK!);
+  const slotConfig = Core.SLOT_CONFIG_NETWORK[network];
+
+  const slotsSinceZero = Number(slot) - slotConfig.zeroSlot;
+  return slotConfig.zeroTime + slotsSinceZero * slotConfig.slotLength;
+}
+
+export function timestampToSlot(unixTimestamp: number): bigint {
+  const network = normalizeNetworkName(process.env.NETWORK!);
+  const slotConfig = Core.SLOT_CONFIG_NETWORK[network];
+
+  // Auto-detect if timestamp is in seconds or milliseconds
+  // Timestamps in seconds are typically 10 digits (1.7B range for 2024+)
+  // Timestamps in milliseconds are typically 13 digits (1.7T range for 2024+)
+  let timestampMs: number;
+
+  if (unixTimestamp < 10000000000) {
+    // Looks like seconds - convert to milliseconds
+    timestampMs = unixTimestamp * 1000;
+  } else {
+    // Looks like milliseconds already
+    timestampMs = unixTimestamp;
+  }
+
+  const slotsSinceZero = Math.floor(
+    (timestampMs - slotConfig.zeroTime) / slotConfig.slotLength
+  );
+  return BigInt(slotConfig.zeroSlot) + BigInt(slotsSinceZero);
 }

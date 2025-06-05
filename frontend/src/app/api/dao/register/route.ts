@@ -109,6 +109,11 @@ export async function POST(request: NextRequest) {
     const referenceAssetName = "0000" + uniqueName;
     const voteNftAssetName = "0001" + uniqueName;
 
+    console.log("🔍 UNIQUE NAME DEBUG:");
+    console.log("Unique name:", uniqueName);
+    console.log("Unique name length:", uniqueName.length);
+    console.log("Expected length: 56");
+
     console.debug(`🔑 Vote Policy ID: ${votePolicyId}`);
     console.debug(`🎫 Vote NFT: ${voteNftAssetName}`);
 
