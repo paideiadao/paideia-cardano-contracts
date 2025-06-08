@@ -333,7 +333,7 @@ export function ProposalsSection({
                       </span>
                     </div>
                     <Link
-                      href={`/dao/proposal/${proposal.policyId}/${proposal.assetName}?daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`}
+                      href={`/dao/proposal?proposalPolicyId=${proposal.policyId}&proposalAssetName=${proposal.assetName}&daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`}
                     >
                       <Button variant="outline" size="sm">
                         View

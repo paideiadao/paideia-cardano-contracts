@@ -818,11 +818,11 @@ async function buildProposalTransaction(
     `${votePolicyId}0000${voteKeyHex}`
   );
 
-  try {
-    console.log("🔍 Starting transaction build...");
-    let txBuilder = blaze.newTransaction().addInput(seedUtxo);
-    console.log("✅ Added seed input");
+  console.log("🔍 Starting transaction build...");
+  let txBuilder = blaze.newTransaction().addInput(seedUtxo);
+  console.log("✅ Added seed input");
 
+  try {
     txBuilder = txBuilder.addReferenceInput(daoInfo.utxo);
     console.log("✅ Added DAO reference input");
 
@@ -863,7 +863,6 @@ async function buildProposalTransaction(
       .setValidUntil(validityEnd);
 
     console.log("🔍 Calling complete()...");
-    return txBuilder.complete();
   } catch (buildError: any) {
     console.error("❌ Transaction building failed at step:", buildError);
     console.error("Error details:", buildError.message);
@@ -882,7 +881,7 @@ async function buildProposalTransaction(
   //   );
   // }
 
-  // return txBuilder.complete();
+  return txBuilder.complete();
 }
 
 async function addActionToTransaction(
@@ -1048,11 +1047,9 @@ async function createActionDatum(
     Core.PlutusData.newBytes(new TextEncoder().encode(action.description))
   );
 
-  // Use seconds since Unix epoch, not slots
-  const activationTimeSeconds = Math.floor(
-    new Date(action.activationTime).getTime() / 1000
-  );
-  fieldsList.add(Core.PlutusData.newInteger(BigInt(activationTimeSeconds)));
+  // Use milliseconds since Unix epoch, not seconds
+  const activationTimeMs = new Date(action.activationTime).getTime();
+  fieldsList.add(Core.PlutusData.newInteger(BigInt(activationTimeMs)));
 
   const actionIdentifierData = Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(

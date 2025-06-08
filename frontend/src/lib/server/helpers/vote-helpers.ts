@@ -293,3 +293,42 @@ export async function checkVoteUtxo(
     return { exists: false };
   }
 }
+
+export async function getUserVoteStatus(
+  walletAddress: string,
+  proposalPolicyId: string,
+  proposalAssetName: string,
+  daoPolicyId: string,
+  daoKey: string
+): Promise<{
+  hasVoted: boolean;
+  votedOption?: number;
+  votePower?: number;
+  canVote: boolean;
+}> {
+  try {
+    const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
+    const userVoteInfo = await findUserVoteUtxo(
+      walletAddress,
+      votePolicyId,
+      daoPolicyId,
+      daoKey
+    );
+
+    if (!userVoteInfo) {
+      return { hasVoted: false, canVote: false };
+    }
+
+    // Check if user has voted on this specific proposal
+    // This would involve checking vote receipt tokens in the user's vote UTXO
+    // For now, simplified implementation
+    return {
+      hasVoted: false, // TODO: Check for vote receipt tokens
+      canVote: true,
+      votePower: userVoteInfo.lockedGovernanceTokens,
+    };
+  } catch (error) {
+    console.error("Error getting user vote status:", error);
+    return { hasVoted: false, canVote: false };
+  }
+}
