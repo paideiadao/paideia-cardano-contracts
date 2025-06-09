@@ -5,10 +5,40 @@ import plutusJson from "@/lib/scripts/plutus.json";
 import {
   addressFromScript,
   createParameterizedScript,
-  getNetworkId,
 } from "./script-helpers";
-import { findUserVoteUtxo, getVotePolicyId } from "./vote-helpers";
+import { getVotePolicyId } from "./vote-helpers";
 import { HexBlob } from "@blaze-cardano/core";
+import { Exact, parse, Type } from "@blaze-cardano/data";
+
+const ProposalTypes = Type.Module({
+  OutputReference: Type.Object({
+            transaction_id: Type.String(),
+            output_index: Type.BigInt(),
+          }, { ctor: 0n }),
+  ProposalStatus: Type.Union([
+    Type.Literal("Active", {ctor: 0n}),
+    Type.Literal("FailedThreshold", {ctor: 1n}),
+    Type.Literal("FailedQuorum", {ctor: 2n}),
+    Type.Object({
+      Passed: Type.BigInt(), 
+    }, {ctor: 3n})
+  ]),
+  ProposalDatum: Type.Object({
+    name: Type.String(),
+    description: Type.String(),
+    tally: Type.Array(Type.BigInt()),
+    end_time: Type.BigInt(),
+    status: Type.Ref("ProposalStatus"),
+    identifier: Type.Ref("OutputReference"),
+  }, {ctor: 0n})});
+
+export const ProposalStatus = ProposalTypes.Import("ProposalStatus");
+export type ProposalStatus = Exact<typeof ProposalStatus>;
+export const OutputReference = ProposalTypes.Import("OutputReference");
+export type OutputReference = Exact<typeof OutputReference>;
+export const ProposalDatum = ProposalTypes.Import("ProposalDatum");
+export type ProposalDatum = Exact<typeof ProposalDatum>;
+
 
 export async function getEndedProposalUtxos(
   whitelistedProposals: string[],
@@ -66,41 +96,37 @@ export async function getEndedProposalUtxos(
   return proposalUtxos;
 }
 
-function parseProposalDatum(datum: Core.PlutusData): { status: string } | null {
+export function parseProposalDatum(datum: Core.PlutusData): ProposalDatum | undefined {
   try {
-    const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) {
-      return null;
-    }
+    const proposalDatum = parse(ProposalDatum, datum);
 
-    const fields = constr.getData();
-    if (fields.getLength() < 5) {
-      return null;
-    }
-
-    const statusField = fields.get(4);
-    const statusConstr = statusField.asConstrPlutusData();
-
-    if (!statusConstr) {
-      return null;
-    }
-
-    const statusAlt = Number(statusConstr.getAlternative());
-    switch (statusAlt) {
-      case 0:
-        return { status: "Active" };
-      case 1:
-        return { status: "FailedThreshold" };
-      case 2:
-        return { status: "FailedQuorum" };
-      case 3:
-        return { status: "Passed" };
-      default:
-        return { status: "Active" };
-    }
+    return proposalDatum;
   } catch (error) {
-    return null;
+    console.error("Error parsing proposal datum:", error);
+    console.error("Datum:", datum.toCbor());
+    return undefined;
   }
+}
+
+export function proposalStatusString(status: ProposalStatus): "Active" | "FailedThreshold" | "FailedQuorum" | "Passed" {
+  switch (typeof status) {
+    case "string":
+      return status;
+    case "object":
+      if ("Passed" in status) {
+        return "Passed";
+      }
+      throw new Error("Unknown proposal status object");
+    default:
+      throw new Error("Unknown proposal status object");
+  }
+}
+
+export function proposalStatusWinningOption(status: ProposalStatus): number | undefined {
+  if (typeof status === "object" && "Passed" in status) {
+    return status.Passed;
+  }
+  return undefined;
 }
 
 export async function findProposalActions(

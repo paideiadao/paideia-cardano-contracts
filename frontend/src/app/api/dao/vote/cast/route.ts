@@ -13,7 +13,8 @@ import {
   createVoteScript,
 } from "@/lib/server/helpers/vote-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
-import { getProposalUtxo } from "@/lib/server/helpers/proposal-helpers";
+import { getProposalUtxo, ProposalDatum } from "@/lib/server/helpers/proposal-helpers";
+import { parse, serialize } from "@blaze-cardano/data";
 
 interface CastVoteRequest {
   daoPolicyId: string;
@@ -193,20 +194,16 @@ async function buildVoteTransaction(
     throw new Error("Proposal UTXO missing datum");
   }
 
-  const currentProposal = parseProposalDatum(proposalDatum);
+  const currentProposal = parse(ProposalDatum, proposalDatum);
   if (!currentProposal) {
     throw new Error("Failed to parse proposal datum");
   }
 
   // Update tally
   const newTally = [...currentProposal.tally];
-  newTally[votedOption] = (newTally[votedOption] || 0) + votePower;
+  newTally[votedOption] = (newTally[votedOption] || 0n) + BigInt(votePower);
 
-  // Create updated proposal datum
-  const newProposalDatum = createUpdatedProposalDatum(
-    proposalDatum, // Pass the original PlutusData
-    newTally
-  );
+  currentProposal.tally = newTally;
 
   // Create vote and proposal scripts
   const voteScript = await createVoteScript(daoPolicyId, daoKey);
@@ -266,7 +263,7 @@ async function buildVoteTransaction(
     .lockAssets(
       proposalUtxo.output().address(),
       proposalValue,
-      newProposalDatum
+      serialize(ProposalDatum, currentProposal)
     )
     .lockAssets(voteUtxo.output().address(), newVoteValue, voteDatum)
     .setValidFrom(validityStart)

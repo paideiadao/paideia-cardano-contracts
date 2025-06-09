@@ -8,6 +8,8 @@ import {
   createParameterizedScript,
   getScriptPolicyId,
 } from "@/lib/server/helpers/script-helpers";
+import { parseProposalDatum, ProposalDatum, proposalStatusString, proposalStatusWinningOption } from "@/lib/server/helpers/proposal-helpers";
+import { parse } from "@blaze-cardano/data";
 
 export interface ProposalInfo {
   policyId: string;
@@ -95,24 +97,25 @@ export async function GET(request: NextRequest) {
         const proposalData = parseProposalDatum(datum);
         if (!proposalData) continue;
 
-        const totalVotes = proposalData.tally.reduce(
+        const totalVotes = Number(proposalData.tally.reduce(
           (sum, votes) => sum + votes,
-          0
-        );
+          0n
+        ));
 
         proposals.push({
           policyId: proposalPolicyId,
           assetName: proposalAssetName,
-          name: proposalData.name,
+          name: new String(Buffer.from(proposalData.name, "hex")).toString(),
           description: proposalData.description,
-          tally: proposalData.tally,
-          endTime: proposalData.end_time,
-          status: proposalData.status,
+          tally: proposalData.tally.map((votes) => Number(votes)),
+          endTime: Number(proposalData.end_time),
+          status: proposalStatusString(proposalData.status),
           winningOption:
-            proposalData.status === "Passed"
-              ? proposalData.winning_option
-              : undefined,
-          identifier: proposalData.identifier,
+            proposalStatusWinningOption(proposalData.status),
+          identifier: {
+            txHash: proposalData.identifier.transaction_id,
+            outputIndex: Number(proposalData.identifier.output_index),
+          },
           utxoRef: {
             txHash: utxo.input().transactionId(),
             outputIndex: Number(utxo.input().index()),
@@ -144,99 +147,99 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function parseProposalDatum(datum: Core.PlutusData): {
-  name: string;
-  description: string;
-  tally: number[];
-  end_time: number;
-  status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed";
-  winning_option?: number;
-  identifier: {
-    txHash: string;
-    outputIndex: number;
-  };
-} | null {
-  try {
-    const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) return null;
+// function parseProposalDatum(datum: Core.PlutusData): {
+//   name: string;
+//   description: string;
+//   tally: number[];
+//   end_time: number;
+//   status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed";
+//   winning_option?: number;
+//   identifier: {
+//     txHash: string;
+//     outputIndex: number;
+//   };
+// } | null {
+//   try {
+//     const constr = datum.asConstrPlutusData();
+//     if (!constr || constr.getAlternative() !== 0n) return null;
 
-    const fields = constr.getData();
-    if (fields.getLength() < 6) return null;
+//     const fields = constr.getData();
+//     if (fields.getLength() < 6) return null;
 
-    // Parse fields
-    const name = new TextDecoder().decode(
-      fields.get(0).asBoundedBytes() ?? new Uint8Array()
-    );
+//     // Parse fields
+//     const name = new TextDecoder().decode(
+//       fields.get(0).asBoundedBytes() ?? new Uint8Array()
+//     );
 
-    const description = new TextDecoder().decode(
-      fields.get(1).asBoundedBytes() ?? new Uint8Array()
-    );
+//     const description = new TextDecoder().decode(
+//       fields.get(1).asBoundedBytes() ?? new Uint8Array()
+//     );
 
-    const tallyList = fields.get(2).asList();
-    const tally: number[] = [];
-    if (tallyList) {
-      for (let i = 0; i < tallyList.getLength(); i++) {
-        tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
-      }
-    }
+//     const tallyList = fields.get(2).asList();
+//     const tally: number[] = [];
+//     if (tallyList) {
+//       for (let i = 0; i < tallyList.getLength(); i++) {
+//         tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
+//       }
+//     }
 
-    const end_time = Number(fields.get(3).asInteger() ?? 0n);
+//     const end_time = Number(fields.get(3).asInteger() ?? 0n);
 
-    const statusConstr = fields.get(4).asConstrPlutusData();
-    let status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed" =
-      "Active";
-    let winning_option: number | undefined;
+//     const statusConstr = fields.get(4).asConstrPlutusData();
+//     let status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed" =
+//       "Active";
+//     let winning_option: number | undefined;
 
-    if (statusConstr) {
-      const statusAlt = Number(statusConstr.getAlternative());
-      switch (statusAlt) {
-        case 0:
-          status = "Active";
-          break;
-        case 1:
-          status = "FailedThreshold";
-          break;
-        case 2:
-          status = "FailedQuorum";
-          break;
-        case 3:
-          status = "Passed";
-          const passedFields = statusConstr.getData();
-          if (passedFields.getLength() > 0) {
-            winning_option = Number(passedFields.get(0).asInteger() ?? 0n);
-          }
-          break;
-      }
-    }
+//     if (statusConstr) {
+//       const statusAlt = Number(statusConstr.getAlternative());
+//       switch (statusAlt) {
+//         case 0:
+//           status = "Active";
+//           break;
+//         case 1:
+//           status = "FailedThreshold";
+//           break;
+//         case 2:
+//           status = "FailedQuorum";
+//           break;
+//         case 3:
+//           status = "Passed";
+//           const passedFields = statusConstr.getData();
+//           if (passedFields.getLength() > 0) {
+//             winning_option = Number(passedFields.get(0).asInteger() ?? 0n);
+//           }
+//           break;
+//       }
+//     }
 
-    const identifierConstr = fields.get(5).asConstrPlutusData();
-    let identifier = { txHash: "", outputIndex: 0 };
-    if (identifierConstr) {
-      const idFields = identifierConstr.getData();
-      if (idFields.getLength() >= 2) {
-        const txHashBytes = idFields.get(0).asBoundedBytes();
-        const outputIndex = Number(idFields.get(1).asInteger() ?? 0n);
+//     const identifierConstr = fields.get(5).asConstrPlutusData();
+//     let identifier = { txHash: "", outputIndex: 0 };
+//     if (identifierConstr) {
+//       const idFields = identifierConstr.getData();
+//       if (idFields.getLength() >= 2) {
+//         const txHashBytes = idFields.get(0).asBoundedBytes();
+//         const outputIndex = Number(idFields.get(1).asInteger() ?? 0n);
 
-        if (txHashBytes) {
-          identifier = {
-            txHash: Core.toHex(txHashBytes),
-            outputIndex,
-          };
-        }
-      }
-    }
+//         if (txHashBytes) {
+//           identifier = {
+//             txHash: Core.toHex(txHashBytes),
+//             outputIndex,
+//           };
+//         }
+//       }
+//     }
 
-    return {
-      name,
-      description,
-      tally,
-      end_time,
-      status,
-      winning_option,
-      identifier,
-    };
-  } catch (error) {
-    console.error("Error parsing proposal datum:", error);
-    return null;
-  }
-}
+//     return {
+//       name,
+//       description,
+//       tally,
+//       end_time,
+//       status,
+//       winning_option,
+//       identifier,
+//     };
+//   } catch (error) {
+//     console.error("Error parsing proposal datum:", error);
+//     return null;
+//   }
+// }
