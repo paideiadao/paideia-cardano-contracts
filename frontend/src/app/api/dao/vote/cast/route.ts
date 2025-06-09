@@ -3,17 +3,20 @@ import { Blaze, ColdWallet, Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import {
   createParameterizedScript,
-  addressFromScript,
   getCurrentSlot,
+  timestampToSlot,
 } from "@/lib/server/helpers/script-helpers";
 import {
   findUserVoteUtxo,
   getVotePolicyId,
   getVoteUtxo,
-  createVoteScript,
 } from "@/lib/server/helpers/vote-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
-import { getProposalUtxo } from "@/lib/server/helpers/proposal-helpers";
+import {
+  getProposalUtxo,
+  parseProposalDatum,
+  parseRawProposalDatum,
+} from "@/lib/server/helpers/proposal-helpers";
 
 interface CastVoteRequest {
   daoPolicyId: string;
@@ -87,6 +90,33 @@ export async function POST(request: NextRequest) {
       throw new Error("Proposal UTXO not found");
     }
 
+    // Parse proposal to check if it's still active
+    const proposalDatum = proposalUtxo.output().datum()?.asInlineData();
+    if (!proposalDatum) {
+      throw new Error("Proposal UTXO missing datum");
+    }
+
+    const currentProposal = parseProposalDatum(proposalDatum, daoInfo);
+    if (!currentProposal) {
+      throw new Error("Failed to parse proposal datum");
+    }
+
+    // Check if proposal is still active
+    const now = Date.now();
+    if (now > currentProposal.endTime) {
+      throw new Error(
+        `Proposal has ended. Voting closed at ${new Date(
+          currentProposal.endTime
+        ).toISOString()}`
+      );
+    }
+
+    if (currentProposal.status !== "Active") {
+      throw new Error(
+        `Cannot vote on proposal with status: ${currentProposal.status}`
+      );
+    }
+
     const voteUtxo = await getVoteUtxo(daoPolicyId, daoKey, userVoteInfo.utxo);
     if (!voteUtxo) {
       throw new Error("Vote UTXO not found");
@@ -96,6 +126,19 @@ export async function POST(request: NextRequest) {
     const voteReceiptAssetName = getVoteReceiptIdentifier(
       proposalAssetName,
       votedOption
+    );
+
+    console.log("🔍 EXACT VALUE DEBUG:");
+    const inputValue = proposalUtxo.output().amount();
+    console.log("Input value object:", inputValue);
+    console.log("Input value CBOR:", inputValue.toCbor());
+
+    // Test if creating a new identical value changes anything
+    const testValue = Core.Value.fromCore(inputValue.toCore());
+    console.log("Reconstructed value CBOR:", testValue.toCbor());
+    console.log(
+      "Values have same CBOR:",
+      inputValue.toCbor() === testValue.toCbor()
     );
 
     // Build the voting transaction
@@ -187,139 +230,297 @@ async function buildVoteTransaction(
     daoKey,
   } = params;
 
-  // Parse current proposal datum to update tally
   const proposalDatum = proposalUtxo.output().datum()?.asInlineData();
   if (!proposalDatum) {
     throw new Error("Proposal UTXO missing datum");
   }
 
-  const currentProposal = parseProposalDatum(proposalDatum);
+  const currentProposal = parseRawProposalDatum(proposalDatum);
   if (!currentProposal) {
     throw new Error("Failed to parse proposal datum");
   }
 
-  // Update tally
   const newTally = [...currentProposal.tally];
   newTally[votedOption] = (newTally[votedOption] || 0) + votePower;
+  const newProposalDatum = createUpdatedProposalDatum(proposalDatum, newTally);
 
-  // Create updated proposal datum
-  const newProposalDatum = createUpdatedProposalDatum(
-    proposalDatum, // Pass the original PlutusData
-    newTally
+  const proposalMintScript = createParameterizedScript(
+    "proposal.proposal.mint",
+    [daoPolicyId, daoKey, votePolicyId]
   );
 
-  // Create vote and proposal scripts
-  const voteScript = await createVoteScript(daoPolicyId, daoKey);
-  const proposalScript = createParameterizedScript("proposal.proposal.spend", [
+  const proposalSpendScript = createParameterizedScript(
+    "proposal.proposal.spend",
+    [daoPolicyId, daoKey, votePolicyId]
+  );
+
+  const voteScript = createParameterizedScript("vote.vote.mint", [
     daoPolicyId,
     daoKey,
-    votePolicyId,
   ]);
 
-  // Create redeemers
   const castVoteRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(1n, new Core.PlutusList()) // CastVote
+    new Core.ConstrPlutusData(1n, new Core.PlutusList())
   );
 
-  // Create mint map for vote receipt
   const receiptMintMap: Map<Core.AssetName, bigint> = new Map();
   receiptMintMap.set(Core.AssetName(voteReceiptAssetName), BigInt(votePower));
 
-  // Calculate new vote UTXO value (add vote receipt tokens)
+  const voteDatum = voteUtxo.output().datum()?.asInlineData();
+  if (!voteDatum) {
+    throw new Error("Vote UTXO missing datum");
+  }
+
+  const currentTime = Date.now();
+  const validityEndMs = Math.min(
+    currentTime + 3600000,
+    currentProposal.end_time - 1000
+  );
+  const validityEndSlot = timestampToSlot(validityEndMs);
+  const currentSlot = getCurrentSlot();
+  const validityStart = Core.Slot(Number(currentSlot));
+  const validityEnd = Core.Slot(Number(validityEndSlot));
+  // Calculate the exact output value the contract expects
   const currentVoteValue = voteUtxo.output().amount().toCore();
-  const newVoteAssets = new Map(currentVoteValue.assets);
+  console.log("Original input assets map size:", currentVoteValue.assets?.size);
+
+  const newVoteAssets = new Map(currentVoteValue.assets ?? new Map());
+  console.log("Copied assets map size:", newVoteAssets.size);
 
   const receiptAssetId = Core.AssetId.fromParts(
     Core.PolicyId(proposalPolicyId),
     Core.AssetName(voteReceiptAssetName)
   );
 
-  const existingReceipts = newVoteAssets.get(receiptAssetId) ?? 0n;
+  // Add the minted receipt tokens to existing balance
+  const existingReceipts = currentVoteValue.assets?.get(receiptAssetId) ?? 0n; // Check ORIGINAL
+  console.log("Existing receipts from ORIGINAL:", existingReceipts);
+
   newVoteAssets.set(receiptAssetId, existingReceipts + BigInt(votePower));
+  console.log("After setting in new map:", newVoteAssets.get(receiptAssetId));
 
   const newVoteValue = Core.Value.fromCore({
     coins: currentVoteValue.coins,
     assets: newVoteAssets,
   });
 
-  // Calculate new proposal UTXO value (unchanged)
-  const proposalValue = proposalUtxo.output().amount();
+  // console.log("🔍 POLICY ID VERIFICATION:");
+  // console.log("proposalPolicyId used:", proposalPolicyId);
+  // console.log("proposalMintScript hash:", proposalMintScript.hash());
+  // console.log("proposalSpendScript hash:", proposalSpendScript.hash());
+  // console.log(
+  //   "Policy IDs match mint script:",
+  //   proposalPolicyId === proposalMintScript.hash()
+  // );
+  // console.log(
+  //   "Policy IDs match spend script:",
+  //   proposalPolicyId === proposalSpendScript.hash()
+  // );
 
-  // Get current vote datum
-  const voteDatum = voteUtxo.output().datum()?.asInlineData();
-  if (!voteDatum) {
-    throw new Error("Vote UTXO missing datum");
-  }
+  // console.log("🔍 VOTE MERGE CALCULATION:");
+  // console.log("Vote input value:", voteUtxo.output().amount().toCore());
+  // console.log("Minted tokens:", {
+  //   policyId: proposalPolicyId,
+  //   assetName: voteReceiptAssetName,
+  //   amount: votePower,
+  // });
 
-  const currentSlot = getCurrentSlot();
-  const validityStart = Core.Slot(Number(currentSlot));
-  const validityEnd = Core.Slot(Number(currentSlot) + 3600);
+  // console.log("Receipt asset ID:", receiptAssetId);
+  // console.log("Calculated vote output value:", newVoteValue.toCore());
+  // console.log("Expected: input + mint = output");
+  // console.log("Input coins:", currentVoteValue.coins);
+  // console.log("Output coins:", newVoteValue.toCore().coins);
+  // console.log(
+  //   "Coins match:",
+  //   currentVoteValue.coins === newVoteValue.toCore().coins
+  // );
+
+  // console.log("🔍 ASSET MATCHING DEBUG:");
+  // console.log("Looking for receipt asset:", receiptAssetId);
+  // console.log("Vote input assets:");
+  // if (currentVoteValue.assets) {
+  //   for (const [assetId, quantity] of currentVoteValue.assets) {
+  //     console.log(`  ${assetId} = ${quantity}`);
+  //     console.log(`  Matches receipt: ${assetId === receiptAssetId}`);
+  //   }
+  // }
+  // console.log("Map.get result:", currentVoteValue.assets?.get(receiptAssetId));
+  // console.log("Map.has result:", currentVoteValue.assets?.has(receiptAssetId));
+
+  // console.log("🔍 MINT VS OUTPUT COMPARISON:");
+  // console.log("Mint map:");
+  // for (const [assetName, quantity] of receiptMintMap) {
+  //   console.log(`  ${assetName} = ${quantity}`);
+  // }
+
+  // console.log("Vote output assets:");
+  // const outputAssets = newVoteValue.toCore().assets;
+  // if (outputAssets) {
+  //   for (const [assetId, quantity] of outputAssets) {
+  //     console.log(`  ${assetId} = ${quantity}`);
+  //   }
+  // }
+
+  // console.log(
+  //   "Receipt asset in mint map:",
+  //   receiptMintMap.get(Core.AssetName(voteReceiptAssetName))
+  // );
+  // console.log("Receipt asset in output:", outputAssets?.get(receiptAssetId));
+  // console.log("🔍 CONTRACT MERGE COMPARISON:");
+  // console.log("Vote input address:", voteUtxo.output().address().toBech32());
+  // console.log("Vote output address:", voteUtxo.output().address().toBech32());
+
+  // console.log("Vote input datum CBOR:", voteDatum.toCbor());
+  // console.log("Vote output datum CBOR:", voteDatum.toCbor());
+
+  // // The critical comparison - manual value comparison
+  // const inputValue = voteUtxo.output().amount().toCore();
+  // const actualOutput = newVoteValue.toCore();
+
+  // console.log("Input coins:", inputValue.coins);
+  // console.log("Output coins:", actualOutput.coins);
+  // console.log("Coins match:", inputValue.coins === actualOutput.coins);
+
+  // console.log("Input assets count:", inputValue.assets?.size ?? 0);
+  // console.log("Output assets count:", actualOutput.assets?.size ?? 0);
+
+  // // Check if output has exactly input assets + 1 new receipt
+  // const expectedAssetCount = (inputValue.assets?.size ?? 0) + 1;
+  // console.log("Expected asset count:", expectedAssetCount);
+  // console.log(
+  //   "Asset count matches:",
+  //   (actualOutput.assets?.size ?? 0) === expectedAssetCount
+  // );
+
+  // // Verify each input asset exists in output with same quantity
+  // let allInputAssetsMatch = true;
+  // if (inputValue.assets) {
+  //   for (const [assetId, quantity] of inputValue.assets) {
+  //     const outputQuantity = actualOutput.assets?.get(assetId);
+  //     if (outputQuantity !== quantity) {
+  //       console.log(
+  //         `❌ Asset mismatch: ${assetId} input=${quantity} output=${outputQuantity}`
+  //       );
+  //       allInputAssetsMatch = false;
+  //     }
+  //   }
+  // }
+  // console.log("All input assets preserved:", allInputAssetsMatch);
+
+  // // Check the new receipt token
+  // const receiptInOutput = actualOutput.assets?.get(receiptAssetId);
+  // console.log("Receipt token in output:", receiptInOutput);
+  // console.log("Receipt token correct:", receiptInOutput === BigInt(votePower));
+
+  // console.log("🔍 VOTE SCRIPT VERIFICATION:");
+  // console.log("Vote script hash:", voteScript.hash());
+  // console.log("Vote policy ID used:", votePolicyId);
+  // console.log("Vote script hashes match:", voteScript.hash() === votePolicyId);
+
+  // console.log("Vote input address credential:");
+  // const inputAddress = voteUtxo.output().address();
+  // console.log("  Input address:", inputAddress.toBech32());
+
+  // console.log("Vote output will be locked to:");
+  // console.log("  Same address:", voteUtxo.output().address().toBech32());
+
+  console.log("🔍 UTXO_UNCHANGED_EXCEPT_TALLY DEBUG:");
+
+  // 1. Address comparison
+  const inputAddress = proposalUtxo.output().address().toBech32();
+  const outputAddress = proposalUtxo.output().address().toBech32(); // Should be same
+  console.log("1. ADDRESS COMPARISON:");
+  console.log("   input.address:", inputAddress);
+  console.log("   output.address:", outputAddress);
+  console.log("   SHOULD BE: identical");
+  console.log("   ACTUAL:", inputAddress === outputAddress);
+
+  // 2. Value comparison
+  const inputValue = proposalUtxo.output().amount().toCore();
+  const outputValue = proposalUtxo.output().amount().toCore(); // Should be same
+  console.log("2. VALUE COMPARISON:");
+  console.log("   input.value coins:", inputValue.coins);
+  console.log("   output.value coins:", outputValue.coins);
+  console.log("   input.value assets:", inputValue.assets?.size ?? 0);
+  console.log("   output.value assets:", outputValue.assets?.size ?? 0);
+  console.log("   SHOULD BE: identical coins and assets");
+  console.log("   ACTUAL coins match:", inputValue.coins === outputValue.coins);
+
+  // 3. Datum comparison (the critical one)
+  const inputDatum = proposalDatum; // Original
+  const outputDatum = newProposalDatum; // Modified
+  console.log("3. DATUM COMPARISON (after stripping tally):");
+
+  // Parse both and show what contract sees when it strips tally
+  const inputParsed = parseRawProposalDatum(inputDatum);
+  const outputParsed = parseRawProposalDatum(outputDatum);
+
+  console.log(
+    "   Contract will create input_without_tally = { ...input_datum, tally: [] }"
+  );
+  console.log(
+    "   Contract will create output_without_tally = { ...output_datum, tally: [] }"
+  );
+  console.log("   Then compare: input_without_tally == output_without_tally");
+
+  console.log("   INPUT datum (original):");
+  console.log("     name:", inputParsed?.name);
+  console.log("     description:", inputParsed?.description);
+  console.log("     tally:", inputParsed?.tally, "(will be stripped to [])");
+  console.log("     end_time:", inputParsed?.end_time);
+  console.log("     status CBOR:", inputParsed?.status?.toCbor());
+  console.log("     identifier CBOR:", inputParsed?.identifier?.toCbor());
+
+  console.log("   OUTPUT datum (modified):");
+  console.log("     name:", outputParsed?.name);
+  console.log("     description:", outputParsed?.description);
+  console.log("     tally:", outputParsed?.tally, "(will be stripped to [])");
+  console.log("     end_time:", outputParsed?.end_time);
+  console.log("     status CBOR:", outputParsed?.status?.toCbor());
+  console.log("     identifier CBOR:", outputParsed?.identifier?.toCbor());
+
+  console.log("   SHOULD BE: all fields except tally identical");
+  console.log("   ACTUAL field matches:");
+  console.log("     name:", inputParsed?.name === outputParsed?.name);
+  console.log(
+    "     description:",
+    inputParsed?.description === outputParsed?.description
+  );
+  console.log(
+    "     end_time:",
+    inputParsed?.end_time === outputParsed?.end_time
+  );
+  console.log(
+    "     status:",
+    inputParsed?.status?.toCbor() === outputParsed?.status?.toCbor()
+  );
+  console.log(
+    "     identifier:",
+    inputParsed?.identifier?.toCbor() === outputParsed?.identifier?.toCbor()
+  );
 
   return blaze
     .newTransaction()
-    .addInput(proposalUtxo, castVoteRedeemer)
-    .addInput(voteUtxo, castVoteRedeemer)
-    .addReferenceInput(daoInfo.utxo)
-    .provideScript(proposalScript)
-    .provideScript(voteScript)
+    .addInput(proposalUtxo, castVoteRedeemer) // Proposal as INPUT, not reference
+    .addInput(voteUtxo, castVoteRedeemer) // Vote as INPUT
+    .addReferenceInput(daoInfo.utxo) // Only DAO as reference
+    .provideScript(proposalMintScript) // For minting receipt tokens
+    .provideScript(proposalSpendScript) // For spending proposal UTXO
+    .provideScript(voteScript) // For spending vote UTXO
     .addMint(Core.PolicyId(proposalPolicyId), receiptMintMap, castVoteRedeemer)
     .lockAssets(
       proposalUtxo.output().address(),
-      proposalValue,
-      newProposalDatum
+      proposalUtxo.output().amount(),
+      newProposalDatum // Updated proposal with new tally
     )
-    .lockAssets(voteUtxo.output().address(), newVoteValue, voteDatum)
+    .lockAssets(
+      voteUtxo.output().address(),
+      newVoteValue, // Vote output with receipt tokens
+      voteDatum
+    )
     .setValidFrom(validityStart)
     .setValidUntil(validityEnd)
     .complete();
-}
-
-function parseProposalDatum(datum: Core.PlutusData): {
-  name: string;
-  description: string;
-  tally: number[];
-  end_time: number;
-  status: any;
-  identifier: any;
-} | null {
-  try {
-    const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) return null;
-
-    const fields = constr.getData();
-    if (fields.getLength() < 6) return null;
-
-    const name = new TextDecoder().decode(
-      fields.get(0).asBoundedBytes() ?? new Uint8Array()
-    );
-
-    const description = new TextDecoder().decode(
-      fields.get(1).asBoundedBytes() ?? new Uint8Array()
-    );
-
-    const tallyList = fields.get(2).asList();
-    const tally: number[] = [];
-    if (tallyList) {
-      for (let i = 0; i < tallyList.getLength(); i++) {
-        tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
-      }
-    }
-
-    const end_time = Number(fields.get(3).asInteger() ?? 0n);
-    const status = fields.get(4);
-    const identifier = fields.get(5);
-
-    return {
-      name,
-      description,
-      tally,
-      end_time,
-      status,
-      identifier,
-    };
-  } catch (error) {
-    return null;
-  }
 }
 
 function createUpdatedProposalDatum(
@@ -327,24 +528,24 @@ function createUpdatedProposalDatum(
   newTally: number[]
 ): Core.PlutusData {
   const constr = originalDatum.asConstrPlutusData()!;
-  const fields = constr.getData();
+  const originalFields = constr.getData();
 
-  // Only change the tally field (index 2)
+  // Create new tally list
   const newTallyList = new Core.PlutusList();
-  for (const votes of newTally) {
+  newTally.forEach((votes) => {
     newTallyList.add(Core.PlutusData.newInteger(BigInt(votes)));
-  }
+  });
 
-  const newFields = new Core.PlutusList();
-  for (let i = 0; i < fields.getLength(); i++) {
-    if (i === 2) {
-      newFields.add(Core.PlutusData.newList(newTallyList));
-    } else {
-      newFields.add(fields.get(i));
-    }
-  }
+  // Use EXACT original field objects, don't reconstruct them
+  const updatedFields = new Core.PlutusList();
+  updatedFields.add(originalFields.get(0)); // name - original object
+  updatedFields.add(originalFields.get(1)); // description - original object
+  updatedFields.add(Core.PlutusData.newList(newTallyList)); // tally - only this is new
+  updatedFields.add(originalFields.get(3)); // end_time - original object
+  updatedFields.add(originalFields.get(4)); // status - original object
+  updatedFields.add(originalFields.get(5)); // identifier - original object
 
   return Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(constr.getAlternative(), newFields)
+    new Core.ConstrPlutusData(constr.getAlternative(), updatedFields)
   );
 }

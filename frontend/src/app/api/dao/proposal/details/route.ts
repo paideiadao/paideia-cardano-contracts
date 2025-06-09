@@ -11,7 +11,11 @@ import {
   getUserVoteStatus,
   getVotePolicyId,
 } from "@/lib/server/helpers/vote-helpers";
-import { findProposalActions } from "@/lib/server/helpers/proposal-helpers";
+import {
+  findProposalActions,
+  parseProposalDatum,
+} from "@/lib/server/helpers/proposal-helpers";
+import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 
 export interface ProposalDetails {
   policyId: string;
@@ -111,7 +115,9 @@ export async function GET(request: NextRequest) {
       throw new Error("Proposal UTXO missing datum");
     }
 
-    const proposalData = parseProposalDatum(datum);
+    const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
+
+    const proposalData = parseProposalDatum(datum, daoInfo);
     if (!proposalData) {
       throw new Error("Failed to parse proposal datum");
     }
@@ -147,12 +153,9 @@ export async function GET(request: NextRequest) {
       name: proposalData.name,
       description: proposalData.description,
       tally: proposalData.tally,
-      endTime: proposalData.end_time,
+      endTime: proposalData.endTime,
       status: proposalData.status,
-      winningOption:
-        proposalData.status === "Passed"
-          ? proposalData.winning_option
-          : undefined,
+      winningOption: proposalData.winningOption,
       identifier: proposalData.identifier,
       totalVotes,
       actions,
@@ -171,101 +174,5 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     );
-  }
-}
-
-function parseProposalDatum(datum: Core.PlutusData): {
-  name: string;
-  description: string;
-  tally: number[];
-  end_time: number;
-  status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed";
-  winning_option?: number;
-  identifier: {
-    txHash: string;
-    outputIndex: number;
-  };
-} | null {
-  try {
-    const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) return null;
-
-    const fields = constr.getData();
-    if (fields.getLength() < 6) return null;
-
-    const name = new TextDecoder().decode(
-      fields.get(0).asBoundedBytes() ?? new Uint8Array()
-    );
-
-    const description = new TextDecoder().decode(
-      fields.get(1).asBoundedBytes() ?? new Uint8Array()
-    );
-
-    const tallyList = fields.get(2).asList();
-    const tally: number[] = [];
-    if (tallyList) {
-      for (let i = 0; i < tallyList.getLength(); i++) {
-        tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
-      }
-    }
-
-    const end_time = Number(fields.get(3).asInteger() ?? 0n);
-
-    const statusConstr = fields.get(4).asConstrPlutusData();
-    let status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed" =
-      "Active";
-    let winning_option: number | undefined;
-
-    if (statusConstr) {
-      const statusAlt = Number(statusConstr.getAlternative());
-      switch (statusAlt) {
-        case 0:
-          status = "Active";
-          break;
-        case 1:
-          status = "FailedThreshold";
-          break;
-        case 2:
-          status = "FailedQuorum";
-          break;
-        case 3:
-          status = "Passed";
-          const passedFields = statusConstr.getData();
-          if (passedFields.getLength() > 0) {
-            winning_option = Number(passedFields.get(0).asInteger() ?? 0n);
-          }
-          break;
-      }
-    }
-
-    const identifierConstr = fields.get(5).asConstrPlutusData();
-    let identifier = { txHash: "", outputIndex: 0 };
-    if (identifierConstr) {
-      const idFields = identifierConstr.getData();
-      if (idFields.getLength() >= 2) {
-        const txHashBytes = idFields.get(0).asBoundedBytes();
-        const outputIndex = Number(idFields.get(1).asInteger() ?? 0n);
-
-        if (txHashBytes) {
-          identifier = {
-            txHash: Core.toHex(txHashBytes),
-            outputIndex,
-          };
-        }
-      }
-    }
-
-    return {
-      name,
-      description,
-      tally,
-      end_time,
-      status,
-      winning_option,
-      identifier,
-    };
-  } catch (error) {
-    console.error("Error parsing proposal datum:", error);
-    return null;
   }
 }

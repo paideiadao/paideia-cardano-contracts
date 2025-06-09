@@ -5,9 +5,9 @@ import { getDaoUtxo, fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 import { getEndedProposalUtxos } from "@/lib/server/helpers/proposal-helpers";
 import {
   getVoteUtxo,
-  createVoteScript,
   findVoteNftUtxo,
   countGovernanceTokensInVoteUtxo,
+  createVoteScript,
 } from "@/lib/server/helpers/vote-helpers";
 
 interface UnregisterExecuteRequest {
@@ -270,7 +270,8 @@ async function buildUnregisterTransaction(
   if (receiptsByPolicy.size > 0) {
     const proposalUtxos = await getEndedProposalUtxos(
       Array.from(receiptsByPolicy.keys()),
-      endedVoteReceipts.map((r) => r.assetName)
+      endedVoteReceipts.map((r) => r.assetName),
+      daoInfo
     );
 
     for (const proposalUtxo of proposalUtxos) {
