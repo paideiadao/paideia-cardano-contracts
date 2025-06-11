@@ -9,10 +9,13 @@ import {
 } from "./script-helpers";
 import { findUserVoteUtxo, getVotePolicyId } from "./vote-helpers";
 import { HexBlob } from "@blaze-cardano/core";
+import { DAOInfo } from "@/app/api/dao/info/route";
+import { ExtendedDAOInfo } from "@/app/api/dao/proposal/create/route";
 
 export async function getEndedProposalUtxos(
   whitelistedProposals: string[],
-  receiptAssetNames: string[]
+  receiptAssetNames: string[],
+  daoInfo: ExtendedDAOInfo
 ) {
   const proposalUtxos: Core.TransactionUnspentOutput[] = [];
 
@@ -45,7 +48,7 @@ export async function getEndedProposalUtxos(
             if (policyId === proposalPolicyId && quantity === 1n) {
               const datum = utxo.output().datum()?.asInlineData();
               if (datum) {
-                const proposalData = parseProposalDatum(datum);
+                const proposalData = parseProposalDatum(datum, daoInfo);
                 if (proposalData?.status !== "Active") {
                   proposalUtxos.push(utxo);
                 }
@@ -66,39 +69,186 @@ export async function getEndedProposalUtxos(
   return proposalUtxos;
 }
 
-function parseProposalDatum(datum: Core.PlutusData): { status: string } | null {
+export interface ParsedProposalDatum {
+  name: string;
+  description: string;
+  tally: number[];
+  endTime: number;
+  status: ProposalStatus;
+  identifier: OutputReference;
+  winningOption?: number;
+}
+
+export interface OutputReference {
+  txHash: string;
+  outputIndex: number;
+}
+
+export type ProposalStatus =
+  | "Active"
+  | "FailedThreshold"
+  | "FailedQuorum"
+  | "Passed";
+
+export interface RawProposalDatum {
+  name: string;
+  description: string;
+  tally: number[];
+  end_time: number;
+  status: Core.PlutusData; // Raw for exact preservation
+  identifier: Core.PlutusData; // Raw for exact preservation
+}
+
+export function parseProposalDatum(
+  datum: Core.PlutusData,
+  daoInfo: ExtendedDAOInfo
+): ParsedProposalDatum | null {
   try {
     const constr = datum.asConstrPlutusData();
-    if (!constr || constr.getAlternative() !== 0n) {
-      return null;
-    }
+    if (!constr || constr.getAlternative() !== 0n) return null;
 
     const fields = constr.getData();
-    if (fields.getLength() < 5) {
-      return null;
+    if (fields.getLength() < 6) return null;
+
+    const name = new TextDecoder().decode(
+      fields.get(0).asBoundedBytes() ?? new Uint8Array()
+    );
+
+    const description = new TextDecoder().decode(
+      fields.get(1).asBoundedBytes() ?? new Uint8Array()
+    );
+
+    const tallyList = fields.get(2).asList();
+    const tally: number[] = [];
+    if (tallyList) {
+      for (let i = 0; i < tallyList.getLength(); i++) {
+        tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
+      }
     }
 
-    const statusField = fields.get(4);
-    const statusConstr = statusField.asConstrPlutusData();
+    const endTime = Number(fields.get(3).asInteger() ?? 0n);
+    let winningOption: number | undefined = undefined;
 
-    if (!statusConstr) {
-      return null;
+    const statusConstr = fields.get(4).asConstrPlutusData();
+    let status: ProposalStatus = "Active";
+    if (statusConstr) {
+      const statusAlt = Number(statusConstr.getAlternative());
+      switch (statusAlt) {
+        case 0:
+          status = "Active";
+          break;
+        case 1:
+          status = "FailedThreshold";
+          break;
+        case 2:
+          status = "FailedQuorum";
+          break;
+        case 3:
+          const passedFields = statusConstr.getData();
+          winningOption =
+            passedFields.getLength() > 0
+              ? Number(passedFields.get(0).asInteger() ?? 0n)
+              : 0;
+          status = "Passed";
+          break;
+      }
     }
 
-    const statusAlt = Number(statusConstr.getAlternative());
-    switch (statusAlt) {
-      case 0:
-        return { status: "Active" };
-      case 1:
-        return { status: "FailedThreshold" };
-      case 2:
-        return { status: "FailedQuorum" };
-      case 3:
-        return { status: "Passed" };
-      default:
-        return { status: "Active" };
+    // Check if Active proposal has expired and determine final status
+    if (status === "Active" && endTime <= Date.now() && daoInfo) {
+      const totalVotes = tally.reduce((sum, votes) => sum + votes, 0);
+
+      if (totalVotes < daoInfo.quorum) {
+        status = "FailedQuorum";
+      } else {
+        const maxVotes = Math.max(...tally);
+        const winningPercentage = (maxVotes / totalVotes) * 100;
+
+        if (winningPercentage >= daoInfo.threshold) {
+          status = "Passed";
+          winningOption = tally.findIndex((votes) => votes === maxVotes);
+        } else {
+          status = "FailedThreshold";
+        }
+      }
     }
+
+    const identifierConstr = fields.get(5).asConstrPlutusData();
+    let identifier: OutputReference = { txHash: "", outputIndex: 0 };
+    if (identifierConstr) {
+      const idFields = identifierConstr.getData();
+      if (idFields.getLength() >= 2) {
+        const txHashBytes = idFields.get(0).asBoundedBytes();
+        const outputIndex = Number(idFields.get(1).asInteger() ?? 0n);
+
+        if (txHashBytes) {
+          identifier = {
+            txHash: Core.toHex(txHashBytes),
+            outputIndex,
+          };
+        }
+      }
+    }
+
+    return {
+      name,
+      description,
+      tally,
+      endTime,
+      status,
+      identifier,
+      winningOption,
+    };
   } catch (error) {
+    console.error("Error parsing proposal datum:", error);
+    return null;
+  }
+}
+
+export function parseRawProposalDatum(
+  datum: Core.PlutusData
+): RawProposalDatum | null {
+  try {
+    const constr = datum.asConstrPlutusData();
+    if (!constr || constr.getAlternative() !== 0n) return null;
+
+    const fields = constr.getData();
+    if (fields.getLength() < 6) return null;
+
+    const name = new TextDecoder().decode(
+      fields.get(0).asBoundedBytes() ?? new Uint8Array()
+    );
+
+    const description = new TextDecoder().decode(
+      fields.get(1).asBoundedBytes() ?? new Uint8Array()
+    );
+
+    const tallyList = fields.get(2).asList();
+    const tally: number[] = [];
+    if (tallyList) {
+      for (let i = 0; i < tallyList.getLength(); i++) {
+        tally.push(Number(tallyList.get(i).asInteger() ?? 0n));
+      }
+    }
+
+    const end_time = Number(fields.get(3).asInteger() ?? 0n);
+    const status = fields.get(4); // Keep as raw PlutusData
+    const identifier = fields.get(5); // Keep as raw PlutusData
+
+    console.log("🔍 RAW FIELDS DEBUG:");
+    console.log("Status field CBOR:", status.toCbor());
+    console.log("Identifier field CBOR:", identifier.toCbor());
+
+    return {
+      name,
+      description,
+      tally,
+      end_time,
+      status,
+      identifier,
+    };
+  } catch (error) {
+    console.error("Error parsing raw proposal datum:", error);
     return null;
   }
 }

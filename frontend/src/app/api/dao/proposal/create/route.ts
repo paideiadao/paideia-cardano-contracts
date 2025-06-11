@@ -7,7 +7,6 @@ import {
   parseDAODatum,
 } from "@/lib/server/helpers/dao-helpers";
 import {
-  createVoteScript,
   findUserVoteUtxo,
   getVoteUtxo,
 } from "@/lib/server/helpers/vote-helpers";
@@ -625,11 +624,6 @@ async function buildProposalTransaction(
   console.log(
     "Has enough tokens:",
     userVoteInfo.lockedGovernanceTokens >= daoInfo.min_gov_proposal_create
-  );
-
-  const voteScript = await createVoteScript(daoInfo.policyId, daoInfo.key);
-  const voteRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(1n, new Core.PlutusList()) // CastVote is constructor 1
   );
 
   console.log("🔍 COMPREHENSIVE CONTRACT VALIDATION DEBUG:");

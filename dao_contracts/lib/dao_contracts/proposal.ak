@@ -9,7 +9,8 @@ use aiken/option.{and_then, is_some, or_else}
 use aiken/primitive/bytearray.{drop, take}
 use cardano/address.{Script}
 use cardano/assets.{
-  AssetName, PolicyId, ada_policy_id, flatten, quantity_of, to_dict, tokens,
+  AssetName, PolicyId, ada_policy_id, flatten, quantity_of, to_dict,
+  tokens, without_lovelace,
 }
 use cardano/transaction.{
   Datum, InlineDatum, Input, Output, OutputReference, Transaction, find_input,
@@ -331,7 +332,7 @@ fn utxo_unchanged_except_tally(
   let output_without_tally = ProposalDatum { ..output_datum, tally: [] }
   and {
     input.address == output.address,
-    input.value == output.value,
+    (without_lovelace(input.value) == without_lovelace(output.value))?,
     input_without_tally == output_without_tally,
   }
 }
@@ -361,7 +362,7 @@ fn utxo_unchanged_except_status(
   let output_without_status = ProposalDatum { ..output_datum, status: Active }
   and {
     (input.address == output.address)?,
-    (input.value == output.value)?,
+    (without_lovelace(input.value) == without_lovelace(output.value))?,
     (input_without_status == output_without_status)?,
   }
 }
