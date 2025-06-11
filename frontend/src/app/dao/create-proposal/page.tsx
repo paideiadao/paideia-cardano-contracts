@@ -123,11 +123,11 @@ export default function CreateProposalPage() {
       // End time: respects minimum duration from start time
       const defaultEndTime = new Date(
         defaultStartTime.getTime() +
-          Math.max(daoInfo.minProposalTime * 1000, 24 * 60 * 60 * 1000)
+          Math.max(daoInfo.minProposalTime * 1000, 24 * 60 * 60)
       );
       // Action activation: 1 hour after voting ends
       const defaultActivationTime = new Date(
-        defaultEndTime.getTime() + 60 * 60 * 1000
+        defaultEndTime.getTime() + 60 * 60
       );
 
       setProposal((prev) => ({

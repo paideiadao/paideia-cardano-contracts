@@ -26,7 +26,8 @@ export function getExplorerUrl(path: string, network?: string): string {
   return `https://${networkPrefix}cardanoscan.io${path}`;
 }
 
-export function formatDuration(seconds: number): string {
+export function formatDuration(milliseconds: number): string {
+  const seconds = Math.floor(milliseconds / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
