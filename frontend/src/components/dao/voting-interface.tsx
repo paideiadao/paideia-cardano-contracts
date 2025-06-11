@@ -345,9 +345,6 @@ export function VotingInterface({
 
         <div className="text-xs text-muted-foreground">
           <p>• Vote power represents the weight of your vote</p>
-          <p>
-            • You can use partial voting power and save some for other proposals
-          </p>
           <p>• Changing your vote will update your previous choice</p>
         </div>
       </CardContent>

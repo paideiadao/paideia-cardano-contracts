@@ -12,7 +12,6 @@ import {
 } from "@/lib/server/helpers/vote-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 import { getProposalUtxo } from "@/lib/server/helpers/proposal-helpers";
-// Only import the redeemer types for now
 import { ProposalRedeemer, VoteRedeemer } from "@/lib/scripts/contracts";
 
 interface CastVoteRequest {
