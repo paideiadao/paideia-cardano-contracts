@@ -4,7 +4,7 @@ use aiken/collection/list.{all, at, length, map}
 use aiken/crypto.{blake2b_256}
 use aiken/primitive/bytearray.{concat, drop, take}
 use cardano/address.{Address, Script}
-use cardano/assets.{AssetName, PolicyId, merge, quantity_of, tokens}
+use cardano/assets.{AssetName, PolicyId, merge, quantity_of, tokens, without_lovelace}
 use cardano/transaction.{
   InlineDatum, Output, OutputReference, Transaction, find_input,
   find_script_outputs,
@@ -183,7 +183,7 @@ fn same_plus_minted(tx: Transaction, output_ref: OutputReference) -> Bool {
   and {
     (vote_input.output.address == vote_output.address)?,
     (vote_input.output.datum == vote_output.datum)?,
-    (merge(vote_input.output.value, tx.mint) == vote_output.value)?,
+    (without_lovelace(merge(vote_input.output.value, tx.mint)) == without_lovelace(vote_output.value))?,
   }
 }
 
