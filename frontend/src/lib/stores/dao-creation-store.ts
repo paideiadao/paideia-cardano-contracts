@@ -15,8 +15,8 @@ export interface DAOConfig {
   name: string;
   // description: string; // dao data doesn't have a description field
   threshold: number; // Percentage needed to pass
-  minProposalTime: number; // Minutes
-  maxProposalTime: number; // Minutes
+  minProposalTime: number; // milliseconds
+  maxProposalTime: number; // milliseconds
   quorum: number; // Minimum votes needed
   minGovProposalCreate: number; // Min tokens needed to create proposal
 }

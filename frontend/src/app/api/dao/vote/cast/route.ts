@@ -7,10 +7,15 @@ import {
   getCurrentSlot,
 } from "@/lib/server/helpers/script-helpers";
 import {
+  createVoteReceiptIdentifier,
   findUserVoteUtxo,
   getVotePolicyId,
 } from "@/lib/server/helpers/vote-helpers";
-import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
+import {
+  fetchDAOInfo,
+  findDeployedScriptUtxoViaMaestro,
+  getVoteScriptHashFromDAO,
+} from "@/lib/server/helpers/dao-helpers";
 import { getProposalUtxo } from "@/lib/server/helpers/proposal-helpers";
 import {
   ProposalRedeemer,
@@ -177,24 +182,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function createVoteReceiptIdentifier(
-  proposalIdentifier: string,
-  index: number
-): string {
-  const voteReceiptData = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier)));
-        list.add(Core.PlutusData.newInteger(BigInt(index)));
-        return list;
-      })()
-    )
-  );
-  return Core.blake2b_256(voteReceiptData.toCbor());
-}
-
 function parseProposalDatum(datum: Core.PlutusData): {
   name: string;
   description: string;
@@ -295,14 +282,34 @@ async function buildVoteTransaction(
     currentProposal,
   } = params;
 
+  // Get script references from DAO whitelisted scripts - same pattern as create proposal
+  const proposalScriptHash = daoInfo.whitelisted_proposals[0];
+  if (!proposalScriptHash) {
+    throw new Error("No proposal scripts whitelisted in DAO");
+  }
+
+  const proposalScriptRef = await findDeployedScriptUtxoViaMaestro(
+    proposalScriptHash
+  );
+  if (!proposalScriptRef) {
+    throw new Error("Proposal script reference not found");
+  }
+
+  const voteScriptHash = getVoteScriptHashFromDAO(daoPolicyId, daoKey);
+  const voteScriptRef = await findDeployedScriptUtxoViaMaestro(voteScriptHash);
+  if (!voteScriptRef) {
+    throw new Error("Vote script reference not found");
+  }
+
+  // Create reference inputs
   const referenceInputs = [
-    new TransactionInput(
-      TransactionId(REFERENCE_SCRIPTS.proposal.txHash),
-      BigInt(REFERENCE_SCRIPTS.proposal.outputIndex)
+    new Core.TransactionInput(
+      Core.TransactionId(proposalScriptRef.txHash),
+      BigInt(proposalScriptRef.outputIndex)
     ),
-    new TransactionInput(
-      TransactionId(REFERENCE_SCRIPTS.vote.txHash),
-      BigInt(REFERENCE_SCRIPTS.vote.outputIndex)
+    new Core.TransactionInput(
+      Core.TransactionId(voteScriptRef.txHash),
+      BigInt(voteScriptRef.outputIndex)
     ),
   ];
 
@@ -409,19 +416,14 @@ async function buildVoteTransaction(
     assets: mergedAssets,
   });
 
-  console.log("🔍 EXACT MERGE MATCH:");
-  console.log("Vote input ADA:", voteInputCore.coins);
-  console.log("Vote output ADA:", voteInputCore.coins);
-  console.log("ADA change:", 0);
-
   const transaction = await blaze
     .newTransaction()
     .addInput(seedUtxo)
     .addInput(voteUtxo, voteSpendRedeemer)
     .addInput(proposalUtxo, castVoteRedeemer)
     .addReferenceInput(daoUtxo)
-    .addReferenceInput(proposalRefUtxo) // Reference input for proposal scripts
-    .addReferenceInput(voteRefUtxo) // Reference input for vote script
+    .addReferenceInput(proposalRefUtxo)
+    .addReferenceInput(voteRefUtxo)
     .addMint(Core.PolicyId(proposalPolicyId), mintAssets, castVoteRedeemer)
     .lockAssets(
       proposalUtxo.output().address(),
@@ -435,6 +437,7 @@ async function buildVoteTransaction(
     )
     .setValidFrom(validityStart)
     .setValidUntil(validityEnd)
+    .setFeePadding(400_000n)
     .complete();
 
   return transaction;

@@ -60,37 +60,27 @@ export async function validateProposalTiming(
 ): Promise<void> {
   const startTime = new Date();
   const endTime = new Date(proposal.endTime);
-  const now = new Date();
 
   if (endTime <= startTime) {
     throw new Error("Proposal end time must be after start time");
   }
 
-  // Duration validation in seconds
-  const durationSeconds = Math.floor(
-    (endTime.getTime() - startTime.getTime()) / 1000
-  );
+  // Duration validation in milliseconds (not seconds!)
+  const durationMs = endTime.getTime() - startTime.getTime();
 
-  if (durationSeconds < daoInfo.min_proposal_time / 1000) {
+  if (durationMs < daoInfo.min_proposal_time) {
     throw new Error(
       `Proposal must run for at least ${Math.floor(
-        daoInfo.min_proposal_time / 60
+        daoInfo.min_proposal_time / (60 * 1000)
       )} minutes`
     );
   }
 
-  if (durationSeconds > daoInfo.max_proposal_time) {
+  if (durationMs > daoInfo.max_proposal_time) {
     throw new Error(
       `Proposal cannot run longer than ${Math.floor(
-        daoInfo.max_proposal_time / 60
+        daoInfo.max_proposal_time / (60 * 1000)
       )} minutes`
-    );
-  }
-
-  const maxStartTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  if (startTime > maxStartTime) {
-    throw new Error(
-      "Proposal start time cannot be more than 7 days in the future"
     );
   }
 }

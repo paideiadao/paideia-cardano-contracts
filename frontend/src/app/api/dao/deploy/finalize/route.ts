@@ -7,6 +7,7 @@ import {
   addressFromScript,
   getCurrentSlot,
 } from "@/lib/server/helpers/script-helpers";
+import { DAOConfig } from "../initialize/route";
 
 interface DeployedScript {
   name: string;
@@ -15,21 +16,6 @@ interface DeployedScript {
   deploymentTx: string;
   size: number;
   parameters: string[];
-}
-
-interface DAOConfig {
-  name: string;
-  description: string;
-  governanceToken: {
-    policyId: string;
-    assetName: string;
-  };
-  threshold: number;
-  minProposalTime: number;
-  maxProposalTime: number;
-  quorum: number;
-  minGovProposalCreate: number;
-  image?: string;
 }
 
 interface FinalizeDAORequest {
@@ -245,7 +231,7 @@ function createDAODatum(
   // threshold
   fieldsList.add(Core.PlutusData.newInteger(BigInt(config.threshold)));
 
-  // min_proposal_time (convert to milliseconds if needed)
+  // min_proposal_time (it should always be in milliseconds)
   fieldsList.add(Core.PlutusData.newInteger(BigInt(config.minProposalTime)));
 
   // max_proposal_time

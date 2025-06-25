@@ -5,25 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { useWallet } from "@meshsdk/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Loader2,
-  Search,
   ExternalLink,
   Users,
   Clock,
-  Coins,
   TrendingUp,
-  Calendar,
   Copy,
   Vote,
   Wallet,
@@ -33,7 +22,7 @@ import {
 import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import Link from "next/link";
-import { getExplorerUrl } from "@/lib/utils";
+import { formatDuration, getExplorerUrl } from "@/lib/utils";
 import { ProposalsSection } from "@/components/dao/proposals-section";
 
 export default function ViewDAOPage() {
@@ -48,10 +37,6 @@ export default function ViewDAOPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingRegistration, setIsCheckingRegistration] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState("newest");
 
   useEffect(() => {
     if (policyId && assetName) {
@@ -130,16 +115,6 @@ export default function ViewDAOPage() {
 
   const copyAddress = async (address: string) => {
     await navigator.clipboard.writeText(address);
-  };
-
-  const formatDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return `${days}d ${hours % 24}h`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    return `${minutes}m`;
   };
 
   const formatAssetQuantity = (quantity: string, decimals = 0) => {
@@ -361,7 +336,7 @@ export default function ViewDAOPage() {
                       Min Duration
                     </p>
                     <p className="text-lg font-semibold">
-                      {formatDuration(daoInfo.minProposalTime / 1000)}
+                      {formatDuration(daoInfo.minProposalTime)}
                     </p>
                   </div>
                   <div>
@@ -369,7 +344,7 @@ export default function ViewDAOPage() {
                       Max Duration
                     </p>
                     <p className="text-lg font-semibold">
-                      {formatDuration(daoInfo.maxProposalTime / 1000)}
+                      {formatDuration(daoInfo.maxProposalTime)}
                     </p>
                   </div>
                 </div>
