@@ -24,6 +24,7 @@ import Link from "next/link";
 import { ProposalDetails } from "@/app/api/dao/proposal/details/route";
 import { getExplorerUrl, formatDuration } from "@/lib/utils";
 import { VotingInterface } from "@/components/dao/voting-interface";
+import { ProposalEvaluation } from "@/components/dao/proposal-evaluation";
 
 export default function ProposalPage() {
   const router = useRouter();
@@ -343,6 +344,16 @@ export default function ProposalPage() {
               daoPolicyId={daoPolicyId!}
               daoKey={daoKey!}
               onVoteSuccess={fetchProposal}
+            />
+          )}
+
+          {/* Proposal Evaluation */}
+          {proposal.status === "Active" && Date.now() > proposal.endTime && (
+            <ProposalEvaluation
+              proposal={proposal}
+              daoPolicyId={daoPolicyId!}
+              daoKey={daoKey!}
+              onEvaluationSuccess={fetchProposal}
             />
           )}
 

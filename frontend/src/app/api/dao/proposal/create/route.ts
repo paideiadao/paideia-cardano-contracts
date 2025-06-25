@@ -3,7 +3,9 @@ import { Blaze, ColdWallet, Core, Provider, Wallet } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import {
   fetchDAOInfo,
+  findDeployedScriptUtxoViaMaestro,
   FullDAODatum,
+  getVoteScriptHashFromDAO,
   parseDAODatum,
 } from "@/lib/server/helpers/dao-helpers";
 import {
@@ -17,13 +19,20 @@ import {
   getScriptPolicyId,
   timestampToSlot,
 } from "@/lib/server/helpers/script-helpers";
-import { Datum, Transaction } from "@blaze-cardano/core";
+import {
+  AssetId,
+  Datum,
+  Transaction,
+  TransactionUnspentOutput,
+} from "@blaze-cardano/core";
 import {
   validateProposalData,
   validateActionData,
   validateProposalTiming,
   validateActionTiming,
 } from "./_helpers/validators";
+import { findSuitableSeedUtxoAvoidingVoteNft } from "@/lib/server/helpers/utxo-helpers";
+import { REFERENCE_SCRIPTS } from "@/lib/scripts/reference-scripts";
 
 interface ProposalAsset {
   unit: string;
@@ -75,6 +84,17 @@ export interface ExtendedDAOInfo extends FullDAODatum {
   utxo: Core.TransactionUnspentOutput;
 }
 
+interface SeedUTXOInfo {
+  utxo: TransactionUnspentOutput;
+  containsVoteNft: boolean;
+  assets: {
+    policyId: string;
+    assetName: string;
+    assetId: AssetId;
+    quantity: bigint;
+  }[];
+}
+
 interface BuildProposalParams {
   seedUtxo: Core.TransactionUnspentOutput;
   daoInfo: ExtendedDAOInfo;
@@ -82,7 +102,8 @@ interface BuildProposalParams {
   proposal: ProposalData;
   action?: ActionData;
   votePolicyId: string;
-  receiveAddress: Core.Address;
+  sendAddress: Core.Address;
+  seedUtxoInfo: SeedUTXOInfo;
 }
 
 interface TokenGroup {
@@ -116,17 +137,52 @@ export async function POST(request: NextRequest) {
     }
 
     const sendAddress = Core.addressFromBech32(walletAddress);
-    const receiveAddress = Core.addressFromBech32(changeAddress);
     const wallet = new ColdWallet(sendAddress, 0, blazeMaestroProvider);
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
     const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
     console.debug(`✅ Found DAO: ${daoInfo.name}`);
 
-    const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
+    // Get script references from DAO whitelist
+    const proposalScriptHash = daoInfo.whitelisted_proposals[0];
+    if (!proposalScriptHash) {
+      throw new Error("No proposal scripts whitelisted in DAO");
+    }
+
+    const proposalScriptRef = await findDeployedScriptUtxoViaMaestro(
+      proposalScriptHash
+    );
+    if (!proposalScriptRef) {
+      throw new Error("Proposal script reference not found");
+    }
+
+    let actionScriptRef = null;
+    if (action) {
+      const actionScriptHash = daoInfo.whitelisted_actions[0];
+      if (!actionScriptHash) {
+        throw new Error("No action scripts whitelisted in DAO");
+      }
+
+      actionScriptRef = await findDeployedScriptUtxoViaMaestro(
+        actionScriptHash
+      );
+      if (!actionScriptRef) {
+        throw new Error("Action script reference not found");
+      }
+    }
+
+    // Get vote script reference for user validation
+    const voteScriptHash = getVoteScriptHashFromDAO(daoPolicyId, daoKey);
+    const voteScriptRef = await findDeployedScriptUtxoViaMaestro(
+      voteScriptHash
+    );
+    if (!voteScriptRef) {
+      throw new Error("Vote script reference not found");
+    }
+
     const userVoteInfo = await findUserVoteUtxo(
       walletAddress,
-      votePolicyId,
+      voteScriptHash,
       daoPolicyId,
       daoKey
     );
@@ -151,79 +207,32 @@ export async function POST(request: NextRequest) {
       throw new Error("No UTXOs found in wallet");
     }
 
-    const seedUtxo =
-      userUtxos.find((utxo) => {
-        const value = utxo.output().amount().toCore();
-        if (!value.assets) return true; // ADA-only UTXO is perfect
-
-        // Check if this UTXO contains the user's Vote NFT
-        for (const [assetId] of value.assets) {
-          const policyId = Core.AssetId.getPolicyId(assetId);
-          const assetName = Core.AssetId.getAssetName(assetId);
-          if (
-            policyId === votePolicyId &&
-            assetName === userVoteInfo.voteNftAssetName
-          ) {
-            return false; // Skip this UTXO - it contains the Vote NFT
-          }
-        }
-        return true;
-      }) ?? userUtxos[0];
-
-    console.log("seed utxo: ", seedUtxo);
+    const seedUtxoInfo = findSuitableSeedUtxoAvoidingVoteNft(
+      userUtxos,
+      voteScriptHash,
+      userVoteInfo.voteNftAssetName
+    );
+    const seedUtxo = seedUtxoInfo.utxo;
 
     let tx: Transaction | null = null;
     try {
-      tx = await buildProposalTransaction(blaze, {
+      tx = await buildProposalTransactionWithRefs(blaze, {
         seedUtxo,
         daoInfo,
         userVoteInfo,
         proposal,
         action,
-        votePolicyId,
-        receiveAddress,
+        proposalScriptRef,
+        actionScriptRef,
+        voteScriptRef,
+        sendAddress,
+        seedUtxoInfo,
       });
       console.log("✅ Transaction built successfully");
     } catch (buildError: any) {
       console.error("❌ Transaction building failed:", buildError);
-      console.error("Error details:", buildError.message);
-      console.error("Error stack:", buildError.stack);
       throw buildError;
     }
-
-    console.log("🔍 VOTE KEY DEBUG:");
-    console.log("User's Vote NFT asset name:", userVoteInfo.voteNftAssetName);
-    console.log("Expected format: 0001 + unique_id");
-    console.log("Extracted unique ID:", userVoteInfo.voteNftAssetName.slice(4));
-    console.log("Reference asset name:", userVoteInfo.referenceAssetName);
-    console.log("Expected format: 0000 + unique_id");
-
-    console.log("🔍 BUILT TRANSACTION:");
-    const txCore = tx.toCore();
-    console.log("Inputs:", txCore.body.inputs?.length);
-    console.log("Reference inputs:", txCore.body.referenceInputs?.length);
-    console.log("Outputs:", txCore.body.outputs?.length);
-    console.log(
-      "Mints:",
-      txCore.body.mint ? Array.from(txCore.body.mint.keys()) : "none"
-    );
-
-    // try {
-    //   await blaze.provider.evaluateTransaction(tx, []);
-    //   console.debug("✅ Transaction dry run successful");
-    // } catch (dryRunError: any) {
-    //   console.error(
-    //     "❌ Full error object:",
-    //     JSON.stringify(dryRunError, null, 2)
-    //   );
-    //   console.error("❌ Error response:", dryRunError?.response?.data);
-    //   console.error("❌ Error status:", dryRunError?.response?.status);
-    //   throw new Error(
-    //     `Transaction validation failed: ${
-    //       dryRunError instanceof Error ? dryRunError.message : "Unknown error"
-    //     }`
-    //   );
-    // }
 
     const proposalIdentifier = getProposalIdentifier(seedUtxo);
 
@@ -247,61 +256,28 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function getVotePolicyId(
-  daoPolicyId: string,
-  daoKey: string
-): Promise<string> {
-  return getScriptPolicyId("vote.vote.mint", [daoPolicyId, daoKey]);
-}
-
-function getProposalIdentifier(
-  seedUtxo: Core.TransactionUnspentOutput
-): string {
-  console.log("🔍 IDENTIFIER CALCULATION:");
-  const outputRefData = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(
-          Core.PlutusData.newBytes(
-            Core.fromHex(seedUtxo.input().transactionId())
-          )
-        );
-        list.add(Core.PlutusData.newInteger(BigInt(seedUtxo.input().index())));
-        return list;
-      })()
-    )
-  );
-
-  console.log("OutputReference CBOR:", outputRefData.toCbor());
-
-  const proposalIdentifierData = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(outputRefData);
-        list.add(Core.PlutusData.newInteger(-1n));
-        return list;
-      })()
-    )
-  );
-
-  console.log("🔍 DETAILED IDENTIFIER DEBUG:");
-  console.log("OutputRef CBOR:", outputRefData.toCbor());
-  console.log("ProposalIdentifier CBOR:", proposalIdentifierData.toCbor());
-  console.log("Final hash:", Core.blake2b_256(proposalIdentifierData.toCbor()));
-  console.log("ProposalIdentifier CBOR:", proposalIdentifierData.toCbor());
-  console.log("Final Hash:", Core.blake2b_256(proposalIdentifierData.toCbor()));
-
-  const proposalIdentifierCbor = proposalIdentifierData.toCbor();
-  return Core.blake2b_256(proposalIdentifierCbor);
-}
-
-async function buildProposalTransaction(
+async function buildProposalTransactionWithRefs(
   blaze: Blaze<Provider, Wallet>,
-  params: BuildProposalParams
+  params: {
+    seedUtxo: Core.TransactionUnspentOutput;
+    daoInfo: ExtendedDAOInfo;
+    userVoteInfo: UserVoteInfo;
+    proposal: ProposalData;
+    action?: ActionData;
+    proposalScriptRef: {
+      txHash: string;
+      outputIndex: number;
+      scriptHash: string;
+    };
+    actionScriptRef?: {
+      txHash: string;
+      outputIndex: number;
+      scriptHash: string;
+    } | null;
+    voteScriptRef: { txHash: string; outputIndex: number; scriptHash: string };
+    sendAddress: Core.Address;
+    seedUtxoInfo: SeedUTXOInfo;
+  }
 ): Promise<Core.Transaction> {
   const {
     seedUtxo,
@@ -309,50 +285,78 @@ async function buildProposalTransaction(
     userVoteInfo,
     proposal,
     action,
-    votePolicyId,
-    receiveAddress,
+    proposalScriptRef,
+    actionScriptRef,
+    voteScriptRef,
+    sendAddress,
+    seedUtxoInfo,
   } = params;
 
-  console.log("🔍 DAO REFERENCE INPUT:");
-  console.log("DAO UTXO:", {
-    txHash: daoInfo.utxo?.input()?.transactionId(),
-    outputIndex: daoInfo.utxo?.input()?.index(),
-    address: daoInfo.utxo?.output()?.address()?.toBech32(),
-    hasDAOToken: !!daoInfo.utxo?.output()?.amount()?.toCore(),
-  });
+  console.log("🔨 Building proposal transaction with reference scripts...");
 
-  const proposalScript = createParameterizedScript("proposal.proposal.mint", [
-    daoInfo.policyId,
-    daoInfo.key,
-    votePolicyId,
-  ]);
-  const proposalPolicyId = proposalScript.hash();
+  // Create reference inputs for scripts
+  const referenceInputs = [
+    new Core.TransactionInput(
+      Core.TransactionId(proposalScriptRef.txHash),
+      BigInt(proposalScriptRef.outputIndex)
+    ),
+    new Core.TransactionInput(
+      Core.TransactionId(voteScriptRef.txHash),
+      BigInt(voteScriptRef.outputIndex)
+    ),
+  ];
 
-  console.log("🔍 DAO WHITELIST CHECK:");
-  console.log("DAO whitelisted proposals:", daoInfo.whitelisted_proposals);
-  console.log("Current proposal policy:", proposalPolicyId);
-  console.log(
-    "Is whitelisted:",
-    daoInfo.whitelisted_proposals.includes(proposalPolicyId)
-  );
+  if (action && actionScriptRef) {
+    referenceInputs.push(
+      new Core.TransactionInput(
+        Core.TransactionId(actionScriptRef.txHash),
+        BigInt(actionScriptRef.outputIndex)
+      )
+    );
+  }
 
-  console.log("🔍 PROPOSAL SCRIPT DEBUG:");
-  console.log("Proposal policy ID:", proposalPolicyId);
-  console.log("DAO policy ID:", daoInfo.policyId);
-  console.log("DAO key:", daoInfo.key);
-  console.log("Vote policy ID:", votePolicyId);
-
-  console.log("🔍 SEED UTXO DEBUG:");
-  console.log("Seed UTXO:", {
-    txHash: seedUtxo.input().transactionId(),
-    outputIndex: seedUtxo.input().index(),
-    address: seedUtxo.output().address().toBech32(),
-    value: seedUtxo.output().amount().toCore(),
-  });
+  const resolvedReferenceUtxos =
+    await blazeMaestroProvider.resolveUnspentOutputs(referenceInputs);
+  const [proposalRefUtxo, voteRefUtxo, actionRefUtxo] = resolvedReferenceUtxos;
 
   const proposalIdentifier = getProposalIdentifier(seedUtxo);
   const proposalDatum = await createProposalDatum(proposal, seedUtxo);
 
+  // Get vote UTXO for reference
+  const voteUtxo = await getVoteUtxo(
+    daoInfo.policyId,
+    daoInfo.key,
+    userVoteInfo.utxo
+  );
+  if (!voteUtxo) {
+    throw new Error("Vote UTXO not found or already spent");
+  }
+
+  // Create proposal script and value
+  const proposalScript = createParameterizedScript("proposal.proposal.spend", [
+    daoInfo.policyId,
+    daoInfo.key,
+    voteScriptRef.scriptHash, // Use the vote policy ID
+  ]);
+  const proposalScriptAddress = addressFromScript(proposalScript);
+
+  const proposalMintMap: Map<Core.AssetName, bigint> = new Map();
+  proposalMintMap.set(Core.AssetName(proposalIdentifier), 1n);
+
+  const proposalValue = Core.Value.fromCore({
+    coins: 0n,
+    assets: new Map([
+      [
+        Core.AssetId.fromParts(
+          Core.PolicyId(proposalScriptRef.scriptHash),
+          Core.AssetName(proposalIdentifier)
+        ),
+        1n,
+      ],
+    ]),
+  });
+
+  // Create proposal redeemer
   const voteKeyHex = userVoteInfo.referenceAssetName.slice(4);
   const proposalRedeemer = Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(
@@ -365,532 +369,77 @@ async function buildProposalTransaction(
     )
   );
 
-  const proposalMintMap: Map<Core.AssetName, bigint> = new Map();
-  proposalMintMap.set(Core.AssetName(proposalIdentifier), 1n);
-
-  const mintedAssets = Array.from(proposalMintMap.entries());
-  console.log("Minting:", mintedAssets);
-
-  const proposalValue = Core.Value.fromCore({
-    coins: 0n,
-    assets: new Map([
-      [
-        Core.AssetId.fromParts(
-          Core.PolicyId(proposalPolicyId),
-          Core.AssetName(proposalIdentifier)
-        ),
-        1n,
-      ],
-    ]),
-  });
-
-  const outputAssets = proposalValue.toCore().assets;
-  console.log("Output contains:", outputAssets);
-
-  const proposalScriptAddress = addressFromScript(proposalScript);
-
-  const voteUtxo = await getVoteUtxo(
-    daoInfo.policyId,
-    daoInfo.key,
-    userVoteInfo.utxo,
-    { enableLogging: true }
-  );
-  if (!voteUtxo) {
-    throw new Error(
-      "Vote UTXO not found or already spent. Please refresh and try again."
-    );
-  }
-
-  console.log("🔍 VOTE REFERENCE ASSET VERIFICATION:");
-  const expectedReferenceAsset = `${votePolicyId}0000${voteKeyHex}`;
-  console.log("Expected reference asset:", expectedReferenceAsset);
-  const voteAssets = voteUtxo.output().amount().toCore().assets;
-  let hasReferenceAsset = false;
-  if (voteAssets) {
-    for (const [assetId, quantity] of voteAssets) {
-      console.log(`Vote UTXO asset: ${assetId} = ${quantity}`);
-      if (assetId === expectedReferenceAsset && quantity === 1n) {
-        hasReferenceAsset = true;
-      }
-    }
-  }
-  console.log("Has reference asset:", hasReferenceAsset);
-  console.log("🔍 Debug Info:");
-  console.log("Vote Key Hex:", voteKeyHex);
-  console.log("Proposal Identifier:", proposalIdentifier);
-  console.log(
-    "Proposal Datum:",
-    JSON.stringify(proposalDatum.toCbor(), null, 2)
-  );
-  console.log(
-    "Proposal Redeemer:",
-    JSON.stringify(proposalRedeemer.toCbor(), null, 2)
-  );
-  console.log("DAO Info:", {
-    policyId: daoInfo.policyId,
-    key: daoInfo.key,
-    minGovProposalCreate: daoInfo.min_gov_proposal_create,
-  });
-  console.log("User Vote Info:", {
-    lockedTokens: userVoteInfo.lockedGovernanceTokens,
-    utxo: userVoteInfo.utxo,
-    referenceAssetName: userVoteInfo.referenceAssetName,
-  });
-
-  const currentSlot = getCurrentSlot();
-  const currentSlotTyped = Core.Slot(Number(currentSlot));
-  const endSlotTyped = Core.Slot(Number(currentSlot + 100n));
-
-  console.log("🔍 TIMING VALIDATION DEBUG:");
-  const now = new Date();
-  const endTime = new Date(proposal.endTime);
-
-  const nowSeconds = Math.floor(now.getTime() / 1000);
-  const endTimeSeconds = Math.floor(endTime.getTime() / 1000);
-
-  console.log("Current time (seconds):", nowSeconds);
-  console.log("Proposal end time (seconds):", endTimeSeconds);
-  console.log("DAO min proposal time (seconds):", daoInfo.min_proposal_time);
-  console.log("DAO max proposal time (seconds):", daoInfo.max_proposal_time);
-
-  const minEndTimeSeconds = nowSeconds + daoInfo.min_proposal_time;
-  const maxEndTimeSeconds = nowSeconds + daoInfo.max_proposal_time;
-
-  console.log("Min allowed end time (seconds):", minEndTimeSeconds);
-  console.log("Max allowed end time (seconds):", maxEndTimeSeconds);
-  console.log(
-    "Duration valid:",
-    endTimeSeconds >= minEndTimeSeconds && endTimeSeconds <= maxEndTimeSeconds
-  );
-
-  console.log("🔍 PROPOSAL IDENTIFIER VALIDATION:");
-  console.log("Minting token name:", proposalIdentifier);
-  console.log(
-    "Token being minted in transaction:",
-    Array.from(proposalMintMap.keys())[0]
-  );
-  console.log(
-    "Do they match:",
-    proposalIdentifier === Array.from(proposalMintMap.keys())[0]
-  );
-
-  console.log("🔍 ON-CHAIN DAO VERIFICATION:");
-  const daoUtxo = daoInfo.utxo;
-  const onChainDatum = daoUtxo.output().datum()?.asInlineData();
-  if (onChainDatum) {
-    const parsedOnChainDAO = parseDAODatum(onChainDatum);
-    console.log("On-chain DAO datum:");
-    console.log("  Name:", parsedOnChainDAO.name);
-    console.log(
-      "  Whitelisted proposals:",
-      parsedOnChainDAO.whitelisted_proposals
-    );
-    console.log("  Whitelisted actions:", parsedOnChainDAO.whitelisted_actions);
-    console.log("  Min proposal time:", parsedOnChainDAO.min_proposal_time);
-    console.log("  Max proposal time:", parsedOnChainDAO.max_proposal_time);
-
-    console.log("🔍 WHITELIST VERIFICATION:");
-    console.log("Current proposal policy:", proposalPolicyId);
-    console.log(
-      "Is in on-chain whitelist:",
-      parsedOnChainDAO.whitelisted_proposals.includes(proposalPolicyId)
-    );
-
-    // Check if any whitelist entries match (in case of case sensitivity issues)
-    console.log("Whitelist comparison:");
-    parsedOnChainDAO.whitelisted_proposals.forEach((policy, i) => {
-      console.log(
-        `  [${i}] ${policy} === ${proposalPolicyId} ? ${
-          policy === proposalPolicyId
-        }`
-      );
-    });
-  } else {
-    console.log("❌ Could not extract DAO datum from UTXO");
-  }
-
-  // Also verify the DAO UTXO contains the expected DAO NFT
-  console.log("🔍 DAO NFT VERIFICATION:");
-  const daoValue = daoUtxo.output().amount().toCore();
-  console.log("DAO UTXO value:", daoValue);
-  if (daoValue.assets) {
-    for (const [assetId, quantity] of daoValue.assets) {
-      const policyId = Core.AssetId.getPolicyId(assetId);
-      const assetName = Core.AssetId.getAssetName(assetId);
-      console.log(`DAO asset: ${policyId}.${assetName} = ${quantity}`);
-      if (policyId === daoInfo.policyId && assetName === daoInfo.key) {
-        console.log("✅ Found expected DAO NFT");
-      }
-    }
-  }
-
-  console.log("🔍 DATUM/REDEEMER VERIFICATION:");
-  try {
-    const datumCbor = proposalDatum.toCbor();
-    console.log("✅ Proposal datum CBOR valid, length:", datumCbor.length);
-  } catch (e) {
-    console.error("❌ Proposal datum CBOR invalid:", e);
-  }
-
-  try {
-    const redeemerCbor = proposalRedeemer.toCbor();
-    console.log(
-      "✅ Proposal redeemer CBOR valid, length:",
-      redeemerCbor.length
-    );
-  } catch (e) {
-    console.error("❌ Proposal redeemer CBOR invalid:", e);
-  }
-
-  console.log("🔍 SCRIPT VERIFICATION:");
-  console.log("Proposal script hash:", proposalScript.hash());
-  console.log("Proposal script address:", proposalScriptAddress.toBech32());
-  console.log("Proposal script CBOR length:", proposalScript.toCbor().length);
-
-  console.log("🔍 SEED UTXO VERIFICATION:");
-  console.log("Seed UTXO being consumed:", {
-    txHash: seedUtxo.input().transactionId(),
-    outputIndex: seedUtxo.input().index(),
-  });
-  console.log("Proposal identifier calculation uses:", {
-    txHash: seedUtxo.input().transactionId(),
-    outputIndex: seedUtxo.input().index(),
-  });
-  console.log(
-    "single_identifier_minted_into_proposal will look for this seed UTXO in tx.inputs"
-  );
-
-  console.log("🔍 TRANSACTION REFERENCE INPUTS DEBUG:");
-  console.log("Vote policy ID:", votePolicyId);
-  console.log("Vote key (from redeemer):", voteKeyHex);
-  console.log("Expected reference asset:", `0000${voteKeyHex}`);
-  console.log("Vote UTXO reference assets:");
-  const voteValue = voteUtxo.output().amount().toCore();
-  if (voteValue.assets) {
-    for (const [assetId, quantity] of voteValue.assets) {
-      const policyId = Core.AssetId.getPolicyId(assetId);
-      const assetName = Core.AssetId.getAssetName(assetId);
-      console.log(`  ${policyId}.${assetName} = ${quantity}`);
-      if (policyId === votePolicyId) {
-        console.log(`    -> Vote policy asset: ${assetName}`);
-      }
-    }
-  }
-
-  // Calculate what the contract expects
-  const contractExpectedIdentifier = getProposalIdentifier(seedUtxo);
-
-  // What you're actually minting
-  const actualMintedIdentifier = Array.from(proposalMintMap.keys())[0];
-
-  // What's in your proposal output value
-  let proposalOutputHasToken = false;
-  const proposalOutputValue = proposalValue.toCore();
-  if (proposalOutputValue.assets) {
-    for (const [assetId, quantity] of proposalOutputValue.assets) {
-      const assetName = Core.AssetId.getAssetName(assetId);
-      const policyId = Core.AssetId.getPolicyId(assetId);
-      if (
-        policyId === Core.PolicyId(proposalPolicyId) &&
-        assetName === contractExpectedIdentifier
-      ) {
-        proposalOutputHasToken = true;
-        console.log(
-          `✅ Proposal output contains token: ${assetName} = ${quantity}`
-        );
-      }
-    }
-  }
-
-  console.log("🔍 PROPOSAL IDENTIFIER VERIFICATION:");
-  console.log("Contract expects:", contractExpectedIdentifier);
-  console.log("Actually minting:", actualMintedIdentifier);
-  console.log(
-    "Do they match:",
-    contractExpectedIdentifier === actualMintedIdentifier
-  );
-  console.log("Proposal output has token:", proposalOutputHasToken);
-
-  // Also verify your proposal datum's identifier field
-  console.log("🔍 PROPOSAL DATUM IDENTIFIER:");
-  console.log("Seed UTXO ref:", {
-    txHash: seedUtxo.input().transactionId(),
-    outputIndex: seedUtxo.input().index(),
-  });
-
-  console.log("🔍 MINIMUM STAKED VERIFICATION:");
-  console.log("User locked tokens:", userVoteInfo.lockedGovernanceTokens);
-  console.log("DAO minimum required:", daoInfo.min_gov_proposal_create);
-  console.log(
-    "Has enough tokens:",
-    userVoteInfo.lockedGovernanceTokens >= daoInfo.min_gov_proposal_create
-  );
-
-  console.log("🔍 COMPREHENSIVE CONTRACT VALIDATION DEBUG:");
-  console.log("==========================================");
-
-  // 1. Transaction Inputs Analysis
-  console.log("\n📥 TRANSACTION INPUTS:");
-  console.log("What we're providing:");
-  console.log("  - Seed UTXO:", {
-    txHash: seedUtxo.input().transactionId(),
-    outputIndex: seedUtxo.input().index(),
-  });
-  console.log("What contract expects:");
-  console.log(
-    "  - expect Some(_output_ref_present) = find_input(tx.inputs, proposal_datum.identifier)"
-  );
-  console.log("  - The seed UTXO must be in tx.inputs");
-
-  // 2. Reference Inputs Analysis
-  console.log("\n📖 REFERENCE INPUTS:");
-  console.log("What we're providing:");
-  console.log("  - DAO UTXO:", {
-    txHash: daoInfo.utxo.input().transactionId(),
-    outputIndex: daoInfo.utxo.input().index(),
-    address: daoInfo.utxo.output().address().toBech32(),
-  });
-  console.log("  - Vote UTXO:", {
-    txHash: voteUtxo.input().transactionId(),
-    outputIndex: voteUtxo.input().index(),
-    address: voteUtxo.output().address().toBech32(),
-  });
-  console.log("What contract expects:");
-  console.log("  - get_dao_datum_from_reference(tx, dao_policy_id, dao_key)");
-  console.log("  - get_vote_reference(tx, vote_policy_id, vote_key)");
-
-  // 3. Minting Analysis
-  console.log("\n🪙 MINTING:");
-  console.log("What we're providing:");
-  console.log("  - Policy ID:", proposalPolicyId);
-  console.log("  - Asset Name:", proposalIdentifier);
-  console.log("  - Quantity:", Array.from(proposalMintMap.values())[0]);
-  console.log("What contract expects:");
-  console.log("  - single_identifier_minted_into_proposal check");
-  console.log(
-    "  - Proposal identifier must equal get_proposal_identifier(proposal_datum.identifier)"
-  );
-
-  // 4. Redeemer Analysis
-  console.log("\n🔧 REDEEMER:");
-  console.log("What we're providing:");
-  console.log("  - Constructor: 0 (CreateProposal)");
-  console.log("  - Vote Key:", voteKeyHex);
-  console.log(
-    "  - Vote Key Length:",
-    voteKeyHex.length,
-    "chars =",
-    voteKeyHex.length / 2,
-    "bytes"
-  );
-  console.log("What contract expects:");
-  console.log("  - CreateProposal { vote_key: ByteArray }");
-  console.log("  - vote_key should be the unique identifier (28 bytes)");
-
-  // 5. Vote Reference Validation
-  console.log("\n🗳️ VOTE REFERENCE VALIDATION:");
-  const expectedAssetName = `0000${voteKeyHex}`;
-  console.log(
-    "Contract will look for asset:",
-    `${votePolicyId}${expectedAssetName}`
-  );
-  console.log("Vote UTXO actually contains:");
-  // const voteAssets = voteUtxo.output().amount().toCore().assets;
-  if (voteAssets) {
-    for (const [assetId, quantity] of voteAssets) {
-      const policyId = Core.AssetId.getPolicyId(assetId);
-      const assetName = Core.AssetId.getAssetName(assetId);
-      console.log(`  - ${policyId}${assetName} = ${quantity}`);
-      if (policyId === votePolicyId && assetName === expectedAssetName) {
-        console.log(
-          "    ✅ MATCH: This is the reference asset the contract expects"
-        );
-      }
-    }
-  }
-
-  // 6. Governance Token Validation
-  console.log("\n💰 GOVERNANCE TOKEN VALIDATION:");
-  const govTokenHex = daoInfo.governance_token;
-  const govPolicyId = govTokenHex.slice(0, 56);
-  const govAssetName = govTokenHex.slice(56);
-  console.log("DAO governance token:", govTokenHex);
-  console.log("  - Policy ID:", govPolicyId);
-  console.log("  - Asset Name:", govAssetName);
-  console.log("Vote UTXO governance tokens:");
-  let foundGovTokens = 0;
-  if (voteAssets) {
-    for (const [assetId, quantity] of voteAssets) {
-      const policyId = Core.AssetId.getPolicyId(assetId);
-      const assetName = Core.AssetId.getAssetName(assetId);
-      if (policyId === govPolicyId && assetName === govAssetName) {
-        foundGovTokens = Number(quantity);
-        console.log(`  - Found ${quantity} governance tokens`);
-      }
-    }
-  }
-  console.log("Contract validation:");
-  console.log(`  - Required: ${daoInfo.min_gov_proposal_create}`);
-  console.log(`  - Available: ${foundGovTokens}`);
-  console.log(
-    `  - Passes: ${foundGovTokens >= daoInfo.min_gov_proposal_create}`
-  );
-
-  // 7. Proposal Output Validation
-  console.log("\n📄 PROPOSAL OUTPUT VALIDATION:");
-  console.log("What we're providing:");
-  console.log("  - Address:", proposalScriptAddress.toBech32());
-  console.log("  - Value:", proposalValue.toCore());
-  console.log("  - Datum structure:", "ProposalDatum with 6 fields");
-  console.log("What contract expects:");
-  console.log(
-    "  - expect [proposal_output] = find_script_outputs(tx.outputs, policy_id)"
-  );
-  console.log("  - Output must be at proposal script address");
-  console.log("  - Must contain exactly 1 proposal identifier token");
-
-  // 8. Datum Field Validation
-  console.log("\n📋 PROPOSAL DATUM VALIDATION:");
-  console.log("Our datum fields:");
-  console.log("  - name:", proposal.name);
-  console.log("  - description:", proposal.description);
-  console.log("  - tally: [0, 0]");
-  console.log(
-    "  - end_time:",
-    Math.floor(new Date(proposal.endTime).getTime() / 1000)
-  );
-  console.log("  - status: Active (Constructor 0)");
-  console.log("  - identifier: OutputReference {");
-  console.log("      transaction_id:", seedUtxo.input().transactionId());
-  console.log("      output_index:", seedUtxo.input().index());
-  console.log("    }");
-
-  // 9. Timing Validation
-  console.log("\n⏰ TIMING VALIDATION:");
-  // const nowSeconds = Math.floor(Date.now() / 1000);
-  // const endTimeSeconds = Math.floor(new Date(proposal.endTime).getTime() / 1000);
-  console.log("Current time:", nowSeconds);
-  console.log("Proposal end time:", endTimeSeconds);
-  console.log("Duration:", endTimeSeconds - nowSeconds, "seconds");
-  console.log("DAO min duration:", daoInfo.min_proposal_time, "seconds");
-  console.log("DAO max duration:", daoInfo.max_proposal_time, "seconds");
-  console.log(
-    "Duration valid:",
-    endTimeSeconds - nowSeconds >= daoInfo.min_proposal_time &&
-      endTimeSeconds - nowSeconds <= daoInfo.max_proposal_time
-  );
-
-  // 10. Final Contract Function Mapping
-  console.log("\n🎯 CONTRACT FUNCTION MAPPING:");
-  console.log("This transaction will trigger:");
-  console.log("  1. proposal.mint() with CreateProposal redeemer");
-  console.log(
-    "     └─ create_proposal(tx, dao_datum, vote_policy_id, vote_key, policy_id)"
-  );
-  console.log(
-    "        ├─ minimum_staked() - checks vote UTXO has enough governance tokens"
-  );
-  console.log("        ├─ correct_duration() - checks proposal timing");
-  console.log(
-    "        └─ single_identifier_minted_into_proposal() - checks minting"
-  );
-  console.log(
-    "  2. dao.spend() should NOT be called (DAO is reference input only)"
-  );
-  console.log(
-    "  3. vote.spend() should NOT be called (Vote is reference input only)"
-  );
-
-  console.log("\n==========================================");
-
-  console.log("🔍 VOTE KEY VERIFICATION:");
-  console.log("Reference asset name:", userVoteInfo.referenceAssetName);
-  console.log("Vote key hex:", voteKeyHex);
-  console.log("Expected asset in vote UTXO:", `0000${voteKeyHex}`);
-  console.log(
-    "Vote policy + expected asset:",
-    `${votePolicyId}0000${voteKeyHex}`
-  );
-
-  console.log("🔍 Starting transaction build...");
-  let txBuilder = blaze.newTransaction().addInput(seedUtxo);
-  console.log("✅ Added seed input");
-
-  try {
-    txBuilder = txBuilder.addReferenceInput(daoInfo.utxo);
-    console.log("✅ Added DAO reference input");
-
-    txBuilder = txBuilder.addReferenceInput(voteUtxo);
-    // txBuilder = txBuilder.addInput(voteUtxo, voteRedeemer);
-    console.log("✅ Added vote reference input");
-
-    txBuilder = txBuilder.provideScript(proposalScript);
-    console.log("✅ Provided proposal script");
-
-    // txBuilder = txBuilder.provideScript(voteScript);
-    // console.log("✅ Provided vote script");
-
-    txBuilder = txBuilder.addMint(
-      Core.PolicyId(proposalPolicyId),
+  console.log("🔧 Building transaction...");
+  let txBuilder = blaze
+    .newTransaction()
+    .addInput(seedUtxo)
+    .addReferenceInput(daoInfo.utxo)
+    .addReferenceInput(voteUtxo)
+    .addReferenceInput(proposalRefUtxo) // Proposal script reference
+    .addReferenceInput(voteRefUtxo) // Vote script reference
+    .addMint(
+      Core.PolicyId(proposalScriptRef.scriptHash),
       proposalMintMap,
       proposalRedeemer
-    );
-    console.log("✅ Added mint");
+    )
+    .lockAssets(proposalScriptAddress, proposalValue, proposalDatum);
 
-    txBuilder = txBuilder.lockAssets(
-      proposalScriptAddress,
-      proposalValue,
-      proposalDatum
-    );
-    console.log("✅ Added proposal output");
-
-    const currentSlot = getCurrentSlot();
-    const validityStart = Core.Slot(Number(currentSlot));
-    const validityEnd = Core.Slot(Number(currentSlot) + 3600); // 1 hour from now (3600 seconds = 3600 slots)
-
-    console.log("🔍 SETTING VALIDITY RANGE:");
-    console.log("  - Start slot:", Number(currentSlot));
-    console.log("  - End slot:", Number(currentSlot + 3600n));
-
-    txBuilder = txBuilder
-      .setValidFrom(validityStart)
-      .setValidUntil(validityEnd);
-
-    console.log("🔍 Calling complete()...");
-  } catch (buildError: any) {
-    console.error("❌ Transaction building failed at step:", buildError);
-    console.error("Error details:", buildError.message);
-    console.error("Error stack:", buildError.stack);
-    throw buildError;
+  // Handle Vote NFT return if needed
+  if (seedUtxoInfo.containsVoteNft) {
+    console.log("🎫 Seed UTXO contains Vote NFT - sending it back to user");
+    const sendBackAssets = new Map<AssetId, bigint>();
+    for (const asset of seedUtxoInfo.assets) {
+      sendBackAssets.set(asset.assetId, asset.quantity);
+    }
+    const sendBackValue = Core.Value.fromCore({
+      coins: 0n,
+      assets: sendBackAssets,
+    });
+    txBuilder = txBuilder.payAssets(sendAddress, sendBackValue);
   }
 
-  // if (action) {
-  //   txBuilder = await addActionToTransaction(
-  //     txBuilder,
-  //     action,
-  //     proposalPolicyId,
-  //     proposalIdentifier,
-  //     daoInfo,
-  //     seedUtxo
-  //   );
-  // }
+  // Add action if present
+  if (action && actionScriptRef && actionRefUtxo) {
+    console.log("📋 Adding treasury action...");
+    txBuilder = await addActionToTransactionWithRefs(
+      txBuilder,
+      action,
+      proposalScriptRef.scriptHash,
+      proposalIdentifier,
+      daoInfo,
+      seedUtxo,
+      actionScriptRef,
+      actionRefUtxo
+    );
+  }
 
-  return txBuilder.complete();
+  const currentSlot = getCurrentSlot();
+  const validityStart = Core.Slot(Number(currentSlot));
+  const validityEnd = Core.Slot(Number(currentSlot) + 300);
+
+  console.log("✅ Transaction building complete, adding fee padding...");
+
+  return txBuilder
+    .setValidFrom(validityStart)
+    .setValidUntil(validityEnd)
+    .setFeePadding(150_000n) // Extra padding for reference script complexity
+    .complete();
 }
 
-async function addActionToTransaction(
+async function addActionToTransactionWithRefs(
   txBuilder: TransactionBuilder,
   action: ActionData,
   proposalPolicyId: string,
   proposalIdentifier: string,
   daoInfo: ExtendedDAOInfo,
-  seedUtxo: Core.TransactionUnspentOutput
+  seedUtxo: Core.TransactionUnspentOutput,
+  actionScriptRef: { txHash: string; outputIndex: number; scriptHash: string },
+  actionRefUtxo: Core.TransactionUnspentOutput
 ): Promise<TransactionBuilder> {
   const actionScript = createParameterizedScript(
-    "action_send_funds.action_send_funds.mint",
+    "action_send_funds.action_send_funds.spend",
     [daoInfo.policyId, daoInfo.key]
   );
-  const actionPolicyId = actionScript.hash();
 
   const actionIdentifier = getActionIdentifier(
     proposalPolicyId,
@@ -902,17 +451,9 @@ async function addActionToTransaction(
     action,
     proposalPolicyId,
     proposalIdentifier,
-    daoInfo
+    daoInfo,
+    seedUtxo
   );
-
-  console.log("🔍 ACTION MINT DEBUG:");
-  console.log("Action policy ID:", actionPolicyId);
-  console.log("DAO whitelisted actions:", daoInfo.whitelisted_actions);
-  console.log(
-    "Action whitelisted:",
-    daoInfo.whitelisted_actions.includes(actionPolicyId)
-  );
-  console.log("Proposal policy passed to action:", proposalPolicyId);
 
   const actionRedeemer = Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(
@@ -945,12 +486,484 @@ async function addActionToTransaction(
     )
   );
 
-  console.log("🔍 ACTION REDEEMER DEBUG:");
-  console.log("Action redeemer CBOR:", actionRedeemer.toCbor());
-  console.log("Seed UTXO for action:", {
-    txHash: seedUtxo.input().transactionId(),
-    index: seedUtxo.input().index(),
+  const actionMintMap: Map<Core.AssetName, bigint> = new Map();
+  actionMintMap.set(Core.AssetName(actionIdentifier), 1n);
+
+  const actionValue = Core.Value.fromCore({
+    coins: 0n,
+    assets: new Map([
+      [
+        Core.AssetId.fromParts(
+          Core.PolicyId(actionScriptRef.scriptHash),
+          Core.AssetName(actionIdentifier)
+        ),
+        1n,
+      ],
+    ]),
   });
+
+  const actionScriptAddress = addressFromScript(actionScript);
+
+  return txBuilder
+    .addReferenceInput(actionRefUtxo) // Action script reference
+    .addMint(
+      Core.PolicyId(actionScriptRef.scriptHash),
+      actionMintMap,
+      actionRedeemer
+    )
+    .lockAssets(actionScriptAddress, actionValue, actionDatum);
+}
+
+async function getVotePolicyId(
+  daoPolicyId: string,
+  daoKey: string
+): Promise<string> {
+  return getScriptPolicyId("vote.vote.mint", [daoPolicyId, daoKey]);
+}
+
+function getProposalIdentifier(
+  seedUtxo: Core.TransactionUnspentOutput
+): string {
+  console.log("🔍 IDENTIFIER CALCULATION:");
+
+  const outputRefData = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(
+          Core.PlutusData.newBytes(
+            Core.fromHex(seedUtxo.input().transactionId())
+          )
+        );
+        list.add(Core.PlutusData.newInteger(BigInt(seedUtxo.input().index())));
+        return list;
+      })()
+    )
+  );
+
+  console.log("  OutputReference CBOR:", outputRefData.toCbor());
+
+  const proposalIdentifierData = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(outputRefData);
+        list.add(Core.PlutusData.newInteger(-1n));
+        return list;
+      })()
+    )
+  );
+
+  console.log("  ProposalIdentifier CBOR:", proposalIdentifierData.toCbor());
+
+  const hash = Core.blake2b_256(proposalIdentifierData.toCbor());
+  console.log("  Final hash:", hash);
+
+  return hash;
+}
+
+async function buildProposalTransaction(
+  blaze: Blaze<Provider, Wallet>,
+  params: BuildProposalParams
+): Promise<Core.Transaction> {
+  const {
+    seedUtxo,
+    daoInfo,
+    userVoteInfo,
+    proposal,
+    action,
+    votePolicyId,
+    sendAddress,
+    seedUtxoInfo,
+  } = params;
+
+  console.log("🔨 Building proposal transaction...");
+
+  const proposalScript = createParameterizedScript("proposal.proposal.mint", [
+    daoInfo.policyId,
+    daoInfo.key,
+    votePolicyId,
+  ]);
+  // const proposalPolicyId = proposalScript.hash();
+  const proposalPolicyId = REFERENCE_SCRIPTS.proposal.scriptHash;
+
+  if (!daoInfo.whitelisted_proposals.includes(proposalPolicyId)) {
+    throw new Error("Proposal policy not whitelisted in DAO");
+  }
+
+  // Create reference inputs for scripts ONLY (not for UTXOs we're spending)
+  const referenceInputs = [
+    new Core.TransactionInput(
+      Core.TransactionId(REFERENCE_SCRIPTS.proposal.txHash),
+      BigInt(REFERENCE_SCRIPTS.proposal.outputIndex)
+    ),
+  ];
+
+  if (action) {
+    referenceInputs.push(
+      new Core.TransactionInput(
+        Core.TransactionId(REFERENCE_SCRIPTS.actionSendFunds.txHash),
+        BigInt(REFERENCE_SCRIPTS.actionSendFunds.outputIndex)
+      )
+    );
+  }
+
+  const resolvedReferenceUtxos =
+    await blazeMaestroProvider.resolveUnspentOutputs(referenceInputs);
+  const [proposalRefUtxo, actionRefUtxo] = resolvedReferenceUtxos;
+
+  const proposalIdentifier = getProposalIdentifier(seedUtxo);
+  const proposalDatum = await createProposalDatum(proposal, seedUtxo);
+
+  // Get vote UTXO, this will be a REFERENCE INPUT (not spent)
+  const voteUtxo = await getVoteUtxo(
+    daoInfo.policyId,
+    daoInfo.key,
+    userVoteInfo.utxo
+  );
+  if (!voteUtxo) {
+    throw new Error("Vote UTXO not found or already spent");
+  }
+
+  // Debug: Check 1 - minimum_staked validation
+  console.log("🔍 VALIDATION 1: minimum_staked");
+  const govTokenHex = daoInfo.governance_token;
+  const govPolicyId = govTokenHex.slice(0, 56);
+  const govAssetName = govTokenHex.slice(56);
+
+  const voteValue = voteUtxo.output().amount().toCore();
+  let foundGovTokens = 0n;
+  if (voteValue.assets) {
+    for (const [assetId, quantity] of voteValue.assets) {
+      const policyId = Core.AssetId.getPolicyId(assetId);
+      const assetName = Core.AssetId.getAssetName(assetId);
+      if (policyId === govPolicyId && assetName === govAssetName) {
+        foundGovTokens = quantity;
+        break;
+      }
+    }
+  }
+
+  console.log(`  Gov token required: ${daoInfo.min_gov_proposal_create}`);
+  console.log(`  Gov tokens in vote UTXO: ${foundGovTokens}`);
+  console.log(
+    `  Minimum staked check: ${
+      foundGovTokens >= daoInfo.min_gov_proposal_create
+    }`
+  );
+
+  // Debug: Check 2 - correct_duration validation
+  console.log("🔍 VALIDATION 2: correct_duration");
+  const currentSlot = getCurrentSlot();
+  const validityStart = Core.Slot(Number(currentSlot));
+  const validityEnd = Core.Slot(Number(currentSlot) + 300);
+
+  // This will be tx_time in the contract
+  const txTimeMs = Date.now() + 5 * 60 * 1000;
+  const endTimeMs = new Date(proposal.endTime).getTime();
+
+  // Contract checks (DAO times are in milliseconds based on your datum creation)
+  const minCheck = endTimeMs >= txTimeMs + daoInfo.min_proposal_time;
+  const maxCheck = endTimeMs <= txTimeMs + daoInfo.max_proposal_time;
+
+  console.log(
+    `  tx_time (validity upper): ${txTimeMs} (${new Date(
+      txTimeMs
+    ).toISOString()})`
+  );
+  console.log(
+    `  proposal end_time: ${endTimeMs} (${new Date(endTimeMs).toISOString()})`
+  );
+  console.log(`  min_proposal_time: ${daoInfo.min_proposal_time}ms`);
+  console.log(`  max_proposal_time: ${daoInfo.max_proposal_time}ms`);
+  console.log(
+    `  Min duration check: ${endTimeMs} >= ${
+      txTimeMs + daoInfo.min_proposal_time
+    } = ${minCheck}`
+  );
+  console.log(
+    `  Max duration check: ${endTimeMs} <= ${
+      txTimeMs + daoInfo.max_proposal_time
+    } = ${maxCheck}`
+  );
+
+  // Debug: Check 3 - single_identifier_minted_into_proposal validation
+  console.log("🔍 VALIDATION 3: single_identifier_minted_into_proposal");
+
+  // Check 3a: find_input(tx.inputs, proposal_datum.identifier)
+  console.log("  3a: Seed UTXO in inputs check");
+  console.log(
+    `    Seed UTXO: ${seedUtxo.input().transactionId()}#${seedUtxo
+      .input()
+      .index()}`
+  );
+  console.log(`    Proposal datum identifier will be: same as seed UTXO`);
+
+  // Check 3b: Minting validation
+  console.log("  3b: Minting validation");
+  const proposalMintMap: Map<Core.AssetName, bigint> = new Map();
+  proposalMintMap.set(Core.AssetName(proposalIdentifier), 1n);
+
+  console.log(`    Minting: ${proposalPolicyId}.${proposalIdentifier} = 1`);
+  console.log(`    Expected identifier: ${proposalIdentifier}`);
+  console.log(`    Minting exactly 1 token: true`);
+
+  // Check 3c: Output contains token
+  console.log("  3c: Proposal output contains token");
+  const proposalValue = Core.Value.fromCore({
+    coins: 0n,
+    assets: new Map([
+      [
+        Core.AssetId.fromParts(
+          Core.PolicyId(proposalPolicyId),
+          Core.AssetName(proposalIdentifier)
+        ),
+        1n,
+      ],
+    ]),
+  });
+
+  const expectedAssetId = Core.AssetId.fromParts(
+    Core.PolicyId(proposalPolicyId),
+    Core.AssetName(proposalIdentifier)
+  );
+
+  console.log(`    Proposal output will contain: ${expectedAssetId} = 1`);
+  console.log(`    quantity_of check: will be >= 1`);
+
+  // Debug: Vote key validation
+  console.log("🔍 VALIDATION 4: Vote key and redeemer");
+  const voteKeyHex = userVoteInfo.referenceAssetName.slice(4);
+  console.log(`  Vote reference asset: ${userVoteInfo.referenceAssetName}`);
+  console.log(
+    `  Extracted vote key: ${voteKeyHex} (${voteKeyHex.length} chars = ${
+      voteKeyHex.length / 2
+    } bytes)`
+  );
+
+  // Check if vote UTXO has the reference asset
+  const expectedReferenceAssetId = Core.AssetId.fromParts(
+    Core.PolicyId(votePolicyId),
+    Core.AssetName(userVoteInfo.referenceAssetName)
+  );
+
+  let hasReferenceAsset = false;
+  if (voteValue.assets) {
+    hasReferenceAsset = voteValue.assets.has(expectedReferenceAssetId);
+  }
+
+  console.log(
+    `  Vote UTXO has reference asset ${votePolicyId}.${userVoteInfo.referenceAssetName}: ${hasReferenceAsset}`
+  );
+
+  const proposalRedeemer = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(Core.PlutusData.newBytes(Core.fromHex(voteKeyHex)));
+        return list;
+      })()
+    )
+  );
+
+  console.log(`  Redeemer CBOR: ${proposalRedeemer.toCbor()}`);
+
+  const proposalScriptAddress = addressFromScript(proposalScript);
+
+  console.log("🔧 Building transaction...");
+  let txBuilder = blaze
+    .newTransaction()
+    .addInput(seedUtxo)
+    .addReferenceInput(daoInfo.utxo)
+    .addReferenceInput(voteUtxo)
+    .addReferenceInput(proposalRefUtxo) // Reference input - Script reference
+    .addMint(Core.PolicyId(proposalPolicyId), proposalMintMap, proposalRedeemer)
+    .lockAssets(proposalScriptAddress, proposalValue, proposalDatum);
+
+  if (seedUtxoInfo.containsVoteNft) {
+    console.log("🎫 Seed UTXO contains Vote NFT - sending it back to user");
+
+    // Calculate what to send back (all assets except ADA used for fees)
+    const sendBackAssets = new Map<AssetId, bigint>();
+
+    for (const asset of seedUtxoInfo.assets) {
+      sendBackAssets.set(asset.assetId, asset.quantity);
+    }
+
+    const sendBackValue = Core.Value.fromCore({
+      coins: 0n, // Let Blaze calculate minimum ADA
+      assets: sendBackAssets,
+    });
+
+    // Send Vote NFT and other assets back to user
+    txBuilder = txBuilder.payAssets(sendAddress, sendBackValue);
+  }
+
+  if (action) {
+    console.log("📋 Adding treasury action...");
+    txBuilder = await addActionToTransaction(
+      txBuilder,
+      action,
+      proposalPolicyId,
+      proposalIdentifier,
+      daoInfo,
+      seedUtxo
+    );
+  }
+
+  txBuilder = txBuilder.setValidFrom(validityStart).setValidUntil(validityEnd);
+
+  console.log("✅ Transaction building complete, submitting...");
+
+  return txBuilder.complete();
+}
+
+async function addActionToTransaction(
+  txBuilder: TransactionBuilder,
+  action: ActionData,
+  proposalPolicyId: string,
+  proposalIdentifier: string,
+  daoInfo: ExtendedDAOInfo,
+  seedUtxo: Core.TransactionUnspentOutput
+): Promise<TransactionBuilder> {
+  const actionScript = createParameterizedScript(
+    "action_send_funds.action_send_funds.mint",
+    [daoInfo.policyId, daoInfo.key]
+  );
+  const actionPolicyId = actionScript.hash();
+
+  // Verify action policy is whitelisted
+  if (!daoInfo.whitelisted_actions.includes(actionPolicyId)) {
+    throw new Error("Action policy not whitelisted in DAO");
+  }
+
+  const actionIdentifier = getActionIdentifier(
+    proposalPolicyId,
+    proposalIdentifier,
+    0
+  );
+
+  const actionDatum = await createActionDatum(
+    action,
+    proposalPolicyId,
+    proposalIdentifier,
+    daoInfo,
+    seedUtxo
+  );
+
+  // Add this right after the action validation debug:
+  console.log("🔍 ACTION IDENTIFIER VERIFICATION:");
+  console.log("Our calculation:");
+  console.log(`  proposal_policy_id: ${proposalPolicyId}`);
+  console.log(`  proposal_identifier: ${proposalIdentifier}`);
+  console.log(`  action_index: 0`);
+  console.log(`  Generated identifier: ${actionIdentifier}`);
+
+  // Calculate what the contract would generate from the action datum
+  const contractCalcData = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
+        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier)));
+        list.add(Core.PlutusData.newInteger(0n));
+        return list;
+      })()
+    )
+  );
+  const contractCalcIdentifier = Core.blake2b_256(contractCalcData.toCbor());
+
+  console.log("Contract calculation (should match):");
+  console.log(`  CBOR: ${contractCalcData.toCbor()}`);
+  console.log(`  Hash: ${contractCalcIdentifier}`);
+  console.log(`  Match: ${actionIdentifier === contractCalcIdentifier}`);
+
+  // Also check what we're actually minting
+  console.log("Transaction minting:");
+  console.log(`  Minting: ${actionPolicyId}.${actionIdentifier} = 1`);
+  console.log(
+    `  Action output will contain: ${actionPolicyId}.${actionIdentifier} = 1`
+  );
+
+  console.log("🔍 ACTION DATUM DEBUG:");
+  // const parsedActionDatum = await parseActionDatumForDebug(actionDatum);
+  // console.log("  Name:", parsedActionDatum.name);
+  // console.log("  Description:", parsedActionDatum.description);
+  // console.log("  Activation time:", parsedActionDatum.activationTime);
+  // console.log("  Option:", parsedActionDatum.option);
+  // console.log("  Action identifier in datum:");
+  // console.log(
+  //   "    proposal_policy_id:",
+  //   parsedActionDatum.actionIdentifier.proposal_policy_id
+  // );
+  // console.log(
+  //   "    proposal_identifier:",
+  //   parsedActionDatum.actionIdentifier.proposal_identifier
+  // );
+  // console.log(
+  //   "    action_index:",
+  //   parsedActionDatum.actionIdentifier.action_index
+  // );
+  // console.log("  Targets count:", parsedActionDatum.targets.length);
+  // console.log("  Treasury address:", parsedActionDatum.treasury);
+
+  const actionRedeemer = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
+
+        const outputRefData = Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(
+            0n,
+            (() => {
+              const refList = new Core.PlutusList();
+              refList.add(
+                Core.PlutusData.newBytes(
+                  Core.fromHex(seedUtxo.input().transactionId())
+                )
+              );
+              refList.add(
+                Core.PlutusData.newInteger(BigInt(seedUtxo.input().index()))
+              );
+              return refList;
+            })()
+          )
+        );
+
+        list.add(outputRefData);
+        return list;
+      })()
+    )
+  );
+
+  console.log("🔍 ACTION VALIDATION DEBUG:");
+  console.log(`  Proposal policy ID: ${proposalPolicyId}`);
+  console.log(`  Proposal identifier: ${proposalIdentifier}`);
+  console.log(`  Action index: 0`);
+  console.log(`  Generated action identifier: ${actionIdentifier}`);
+  console.log(`  Action policy ID: ${actionPolicyId}`);
+  console.log(`  DAO whitelisted actions: ${daoInfo.whitelisted_actions}`);
+  console.log(
+    `  Action whitelisted: ${daoInfo.whitelisted_actions.includes(
+      actionPolicyId
+    )}`
+  );
+
+  // Also debug the action redeemer structure
+  console.log("Action redeemer structure:");
+  console.log(`  proposal_policy_id: ${proposalPolicyId}`);
+  console.log(
+    `  proposal_identifier: ${seedUtxo.input().transactionId()}#${seedUtxo
+      .input()
+      .index()}`
+  );
+  console.log(`  Redeemer CBOR: ${actionRedeemer.toCbor()}`);
 
   const actionMintMap: Map<Core.AssetName, bigint> = new Map();
   actionMintMap.set(Core.AssetName(actionIdentifier), 1n);
@@ -970,10 +983,178 @@ async function addActionToTransaction(
 
   const actionScriptAddress = addressFromScript(actionScript);
 
+  console.log("🔍 ACTION DATUM CBOR:", actionDatum.toCbor());
+  console.log("🔍 ACTION DATUM STRUCTURE:");
+  console.log("  Fields count:", 7);
+  console.log("  Targets count:", action.targets.length);
+  if (action.targets.length > 0) {
+    console.log(
+      "  Target 0 - Address length:",
+      Core.addressFromBech32(action.targets[0].address).toBytes().length
+    );
+    console.log(
+      "  Target 0 - ADA amount:",
+      action.targets[0].assets.find((a) => a.unit === "lovelace")?.quantity
+    );
+  }
+
   return txBuilder
     .provideScript(actionScript)
     .addMint(Core.PolicyId(actionPolicyId), actionMintMap, actionRedeemer)
     .lockAssets(actionScriptAddress, actionValue, actionDatum);
+}
+
+async function createActionDatum(
+  action: ActionData,
+  proposalPolicyId: string,
+  proposalIdentifier: string,
+  daoInfo: ExtendedDAOInfo,
+  seedUtxo: TransactionUnspentOutput
+): Promise<Core.PlutusData> {
+  const fields = new Core.PlutusList();
+
+  // Field 0: name (String - not bytes!)
+  fields.add(Core.PlutusData.newBytes(new TextEncoder().encode(action.name)));
+
+  // Field 1: description (String - not bytes!)
+  fields.add(
+    Core.PlutusData.newBytes(new TextEncoder().encode(action.description))
+  );
+
+  // Field 2: activation_time (BigInt)
+  const activationTimeMs = new Date(action.activationTime).getTime();
+  fields.add(Core.PlutusData.newInteger(BigInt(activationTimeMs)));
+
+  // Field 3: action_identifier
+  const actionIdentifierFields = new Core.PlutusList();
+  actionIdentifierFields.add(
+    Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId))
+  );
+  actionIdentifierFields.add(
+    Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier))
+  );
+  actionIdentifierFields.add(Core.PlutusData.newInteger(0n));
+  fields.add(
+    Core.PlutusData.newConstrPlutusData(
+      new Core.ConstrPlutusData(0n, actionIdentifierFields)
+    )
+  );
+
+  // Field 4: option (BigInt)
+  fields.add(Core.PlutusData.newInteger(1n));
+
+  // Field 5: targets
+  const targetsList = new Core.PlutusList();
+  for (const target of action.targets) {
+    const targetFields = new Core.PlutusList();
+
+    // Address
+    const address = Core.addressFromBech32(target.address);
+    const addressBytes = address.toBytes();
+    const headerByte = parseInt(addressBytes.slice(0, 2), 16);
+    const addressType = headerByte & 0x0f;
+    const paymentCredHash = addressBytes.slice(2, 58);
+    const isScript = (addressType & 0x01) === 0x01;
+
+    const addressData = Core.PlutusData.newConstrPlutusData(
+      new Core.ConstrPlutusData(
+        0n,
+        (() => {
+          const addrList = new Core.PlutusList();
+
+          // payment_credential
+          const paymentCred = Core.PlutusData.newConstrPlutusData(
+            new Core.ConstrPlutusData(
+              isScript ? 1n : 0n,
+              (() => {
+                const credList = new Core.PlutusList();
+                credList.add(
+                  Core.PlutusData.newBytes(Core.fromHex(paymentCredHash))
+                );
+                return credList;
+              })()
+            )
+          );
+          addrList.add(paymentCred);
+
+          // stake_credential - None
+          const stakeCredNone = Core.PlutusData.newConstrPlutusData(
+            new Core.ConstrPlutusData(1n, new Core.PlutusList())
+          );
+          addrList.add(stakeCredNone);
+
+          return addrList;
+        })()
+      )
+    );
+    targetFields.add(addressData);
+
+    // Coins
+    const adaAsset = target.assets.find((a) => a.unit === "lovelace");
+    const lovelaceAmount = adaAsset
+      ? BigInt(parseFloat(adaAsset.quantity) * 1_000_000)
+      : 0n;
+    targetFields.add(Core.PlutusData.newInteger(lovelaceAmount));
+
+    // Tokens - Record(String, Record(String, BigInt)) - empty record
+    const emptyTokensRecord = new Core.PlutusMap();
+    targetFields.add(Core.PlutusData.newMap(emptyTokensRecord));
+
+    // Datum - NoDatum literal
+    const noDatum = Core.PlutusData.newConstrPlutusData(
+      new Core.ConstrPlutusData(0n, new Core.PlutusList())
+    );
+    targetFields.add(noDatum);
+
+    const targetData = Core.PlutusData.newConstrPlutusData(
+      new Core.ConstrPlutusData(0n, targetFields)
+    );
+    targetsList.add(targetData);
+  }
+  fields.add(Core.PlutusData.newList(targetsList));
+
+  // Field 6: treasury
+  const treasuryScript = createParameterizedScript("treasury.treasury.spend", [
+    daoInfo.policyId,
+    daoInfo.key,
+  ]);
+
+  const treasuryAddressData = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const addrList = new Core.PlutusList();
+
+        // payment_credential - Script
+        const paymentCred = Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(
+            1n,
+            (() => {
+              const credList = new Core.PlutusList();
+              credList.add(
+                Core.PlutusData.newBytes(Core.fromHex(treasuryScript.hash()))
+              );
+              return credList;
+            })()
+          )
+        );
+        addrList.add(paymentCred);
+
+        // stake_credential - None
+        const stakeCredNone = Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(1n, new Core.PlutusList())
+        );
+        addrList.add(stakeCredNone);
+
+        return addrList;
+      })()
+    )
+  );
+  fields.add(treasuryAddressData);
+
+  return Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(0n, fields)
+  );
 }
 
 async function createProposalDatum(
@@ -1025,62 +1206,6 @@ async function createProposalDatum(
   );
 }
 
-async function createActionDatum(
-  action: ActionData,
-  proposalPolicyId: string,
-  proposalIdentifier: string,
-  daoInfo: ExtendedDAOInfo
-): Promise<Core.PlutusData> {
-  const fieldsList = new Core.PlutusList();
-
-  fieldsList.add(
-    Core.PlutusData.newBytes(new TextEncoder().encode(action.name))
-  );
-
-  fieldsList.add(
-    Core.PlutusData.newBytes(new TextEncoder().encode(action.description))
-  );
-
-  // Use milliseconds since Unix epoch, not seconds
-  const activationTimeMs = new Date(action.activationTime).getTime();
-  fieldsList.add(Core.PlutusData.newInteger(BigInt(activationTimeMs)));
-
-  const actionIdentifierData = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier)));
-        list.add(Core.PlutusData.newInteger(0n));
-        return list;
-      })()
-    )
-  );
-  fieldsList.add(actionIdentifierData);
-
-  fieldsList.add(Core.PlutusData.newInteger(1n));
-
-  const targetsList = new Core.PlutusList();
-  for (const target of action.targets) {
-    const targetData = createTargetData(target);
-    targetsList.add(targetData);
-  }
-  fieldsList.add(Core.PlutusData.newList(targetsList));
-
-  const treasuryScript = createParameterizedScript("treasury.treasury.spend", [
-    daoInfo.policyId,
-    daoInfo.key,
-  ]);
-  const treasuryAddress = addressFromScript(treasuryScript);
-  const treasuryAddressBytes = treasuryAddress.toBytes();
-  fieldsList.add(Core.PlutusData.newBytes(Core.fromHex(treasuryAddressBytes)));
-
-  return Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(0n, fieldsList)
-  );
-}
-
 function getActionIdentifier(
   proposalPolicyId: string,
   proposalIdentifier: string,
@@ -1102,81 +1227,143 @@ function getActionIdentifier(
   return Core.blake2b_256(actionIdentifierData.toCbor());
 }
 
-function createTargetData(target: ProposalTarget): Core.PlutusData {
-  console.log("🔍 TARGET DATA DEBUG:");
-  console.log("Target:", target);
-  const fieldsList = new Core.PlutusList();
+async function parseActionDatumForDebug(datum: Core.PlutusData) {
+  const constr = datum.asConstrPlutusData()!;
+  const fields = constr.getData();
 
-  const address = Core.addressFromBech32(target.address);
-  console.log("Address bytes:", address.toBytes());
-  fieldsList.add(Core.PlutusData.newBytes(Core.fromHex(address.toBytes())));
+  // Field 0: name (String)
+  const name = new TextDecoder().decode(fields.get(0).asBoundedBytes()!);
 
-  const adaAsset = target.assets.find((a) => a.unit === "lovelace");
-  const coins = adaAsset ? BigInt(adaAsset.quantity) : 0n;
-  console.log("Coins:", coins);
-  fieldsList.add(Core.PlutusData.newInteger(coins));
+  // Field 1: description (String)
+  const description = new TextDecoder().decode(fields.get(1).asBoundedBytes()!);
 
-  const tokensList = new Core.PlutusList();
-  const tokensByPolicy = new Map<string, TokenGroup[]>();
+  // Field 2: activation_time (BigInt)
+  const activationTime = Number(fields.get(2).asInteger()!);
 
-  for (const asset of target.assets) {
-    if (asset.unit === "lovelace") continue;
-    console.log("Processing asset:", asset);
+  // Field 3: action_identifier
+  const actionIdConstr = fields.get(3).asConstrPlutusData()!;
+  const actionIdFields = actionIdConstr.getData();
+  const actionIdentifier = {
+    proposal_policy_id: Core.toHex(actionIdFields.get(0).asBoundedBytes()!),
+    proposal_identifier: Core.toHex(actionIdFields.get(1).asBoundedBytes()!),
+    action_index: Number(actionIdFields.get(2).asInteger()!),
+  };
 
-    const policyId = asset.unit.slice(0, 56);
-    const assetName = asset.unit.slice(56);
-    console.log("Policy ID:", policyId, "Asset name:", assetName);
+  // Field 4: option (BigInt)
+  const option = Number(fields.get(4).asInteger()!);
 
-    if (!tokensByPolicy.has(policyId)) {
-      tokensByPolicy.set(policyId, []);
+  // Field 5: targets (Array of Target)
+  const targetsList = fields.get(5).asList()!;
+  const targets = [];
+  for (let i = 0; i < targetsList.getLength(); i++) {
+    const targetConstr = targetsList.get(i).asConstrPlutusData()!;
+    const targetFields = targetConstr.getData();
+
+    // Parse target address
+    const addressConstr = targetFields.get(0).asConstrPlutusData()!;
+    const addressFields = addressConstr.getData();
+
+    // Payment credential
+    const paymentCredConstr = addressFields.get(0).asConstrPlutusData()!;
+    const paymentCredType = Number(paymentCredConstr.getAlternative());
+    const paymentCredFields = paymentCredConstr.getData();
+    const paymentCredHash = Core.toHex(
+      paymentCredFields.get(0).asBoundedBytes()!
+    );
+
+    // Stake credential (Optional)
+    const stakeCredConstr = addressFields.get(1).asConstrPlutusData()!;
+    const hasStakeCred = Number(stakeCredConstr.getAlternative()) === 0;
+
+    let stakeCredInfo = "None";
+    if (hasStakeCred) {
+      const stakeCredFields = stakeCredConstr.getData();
+      const innerStakeCredConstr = stakeCredFields.get(0).asConstrPlutusData()!;
+      const stakeCredType = Number(innerStakeCredConstr.getAlternative());
+      const innerStakeCredFields = innerStakeCredConstr.getData();
+      const stakeCredHash = Core.toHex(
+        innerStakeCredFields.get(0).asBoundedBytes()!
+      );
+      stakeCredInfo = `${
+        stakeCredType === 0 ? "Key" : "Script"
+      }:${stakeCredHash}`;
     }
-    tokensByPolicy.get(policyId)!.push({
-      name: assetName,
-      amount: BigInt(asset.quantity),
+
+    const coins = Number(targetFields.get(1).asInteger()!);
+
+    // Tokens list
+    const tokensList = targetFields.get(2).asList()!;
+    const tokensCount = tokensList.getLength();
+
+    // Datum
+    const datumConstr = targetFields.get(3).asConstrPlutusData()!;
+    const datumType = Number(datumConstr.getAlternative());
+    const datumInfo = datumType === 0 ? "NoDatum" : `SomeData(${datumType})`;
+
+    targets.push({
+      address: {
+        payment_credential: `${
+          paymentCredType === 0 ? "Key" : "Script"
+        }:${paymentCredHash}`,
+        stake_credential: stakeCredInfo,
+      },
+      coins,
+      tokens_count: tokensCount,
+      datum: datumInfo,
     });
   }
-  console.log("Tokens by policy:", tokensByPolicy);
 
-  for (const [policyId, assets] of tokensByPolicy) {
-    const policyData = Core.PlutusData.newConstrPlutusData(
-      new Core.ConstrPlutusData(
-        0n,
-        (() => {
-          const list = new Core.PlutusList();
-          list.add(Core.PlutusData.newBytes(Core.fromHex(policyId)));
+  // Field 6: treasury (Address)
+  const treasuryConstr = fields.get(6).asConstrPlutusData()!;
+  const treasuryFields = treasuryConstr.getData();
 
-          const assetsList = new Core.PlutusList();
-          for (const asset of assets) {
-            const assetData = Core.PlutusData.newConstrPlutusData(
-              new Core.ConstrPlutusData(
-                0n,
-                (() => {
-                  const assetList = new Core.PlutusList();
-                  assetList.add(
-                    Core.PlutusData.newBytes(Core.fromHex(asset.name))
-                  );
-                  assetList.add(Core.PlutusData.newInteger(asset.amount));
-                  return assetList;
-                })()
-              )
-            );
-            assetsList.add(assetData);
-          }
-          list.add(Core.PlutusData.newList(assetsList));
-          return list;
-        })()
-      )
+  // Treasury payment credential
+  const treasuryPaymentCredConstr = treasuryFields.get(0).asConstrPlutusData()!;
+  const treasuryPaymentCredType = Number(
+    treasuryPaymentCredConstr.getAlternative()
+  );
+  const treasuryPaymentCredFields = treasuryPaymentCredConstr.getData();
+  const treasuryPaymentCredHash = Core.toHex(
+    treasuryPaymentCredFields.get(0).asBoundedBytes()!
+  );
+
+  // Treasury stake credential
+  const treasuryStakeCredConstr = treasuryFields.get(1).asConstrPlutusData()!;
+  const treasuryHasStakeCred =
+    Number(treasuryStakeCredConstr.getAlternative()) === 0;
+
+  let treasuryStakeCredInfo = "None";
+  if (treasuryHasStakeCred) {
+    const treasuryStakeCredFields = treasuryStakeCredConstr.getData();
+    const innerTreasuryStakeCredConstr = treasuryStakeCredFields
+      .get(0)
+      .asConstrPlutusData()!;
+    const treasuryStakeCredType = Number(
+      innerTreasuryStakeCredConstr.getAlternative()
     );
-    tokensList.add(policyData);
+    const innerTreasuryStakeCredFields = innerTreasuryStakeCredConstr.getData();
+    const treasuryStakeCredHash = Core.toHex(
+      innerTreasuryStakeCredFields.get(0).asBoundedBytes()!
+    );
+    treasuryStakeCredInfo = `${
+      treasuryStakeCredType === 0 ? "Key" : "Script"
+    }:${treasuryStakeCredHash}`;
   }
-  fieldsList.add(Core.PlutusData.newList(tokensList));
 
-  const noDatum = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(0n, new Core.PlutusList())
-  );
-  fieldsList.add(noDatum);
+  const treasury = {
+    payment_credential: `${
+      treasuryPaymentCredType === 0 ? "Key" : "Script"
+    }:${treasuryPaymentCredHash}`,
+    stake_credential: treasuryStakeCredInfo,
+  };
 
-  return Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(0n, fieldsList)
-  );
+  return {
+    name,
+    description,
+    activationTime,
+    actionIdentifier,
+    option,
+    targets,
+    treasury,
+  };
 }

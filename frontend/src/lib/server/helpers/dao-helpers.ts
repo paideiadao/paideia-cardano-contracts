@@ -3,6 +3,8 @@ import {
   addressFromScript,
   createParameterizedScript,
   extractInlineDatum,
+  getNetworkId,
+  getScriptPolicyId,
   getUTXOsWithFallback,
 } from "./script-helpers";
 import { findUTXOWithAsset } from "./utxo-helpers";
@@ -17,6 +19,166 @@ export interface FullDAODatum {
   min_gov_proposal_create: number;
   whitelisted_proposals: string[];
   whitelisted_actions: string[];
+}
+
+export interface DeployedScriptReference {
+  txHash: string;
+  outputIndex: number;
+  scriptHash: string;
+}
+
+export interface DAOScriptReferences {
+  vote: DeployedScriptReference;
+  treasury: DeployedScriptReference;
+  proposal: DeployedScriptReference;
+  actionSendFunds: DeployedScriptReference;
+}
+
+/**
+ * Extract script references from DAO NFT metadata
+ * The DAO NFT should contain metadata with deployed script info
+ */
+export async function getDAOScriptReferences(
+  daoUtxo: Core.TransactionUnspentOutput
+): Promise<DAOScriptReferences> {
+  // The DAO NFT metadata contains the script deployment info
+  // We need to extract this from the NFT metadata
+  // For now, let's scan for deployed scripts based on the DAO parameters
+
+  throw new Error(
+    "Not implemented - need to extract from DAO NFT metadata or scan deployed scripts"
+  );
+}
+
+/**
+ * Get vote script hash from DAO's whitelisted proposals
+ * The vote script hash should be derivable from DAO parameters
+ */
+export function getVoteScriptHashFromDAO(
+  daoPolicyId: string,
+  daoKey: string
+): string {
+  const voteScript = createParameterizedScript("vote.vote.spend", [
+    daoPolicyId,
+    daoKey,
+  ]);
+  return voteScript.hash();
+}
+
+/**
+ * Find deployed script UTXO by scanning burn address
+ */
+export async function findDeployedScriptUtxo(
+  scriptHash: string
+): Promise<Core.TransactionUnspentOutput | null> {
+  const networkId = getNetworkId();
+  const burnAddress = Core.getBurnAddress(networkId);
+
+  try {
+    const utxos = await getUTXOsWithFallback(burnAddress);
+
+    // Find UTXO with matching reference script
+    for (const utxo of utxos) {
+      // Check if this UTXO has a reference script with matching hash
+      // This requires checking the reference script field
+      // For now, we'll need to implement this based on Blaze SDK capabilities
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error finding deployed script UTXO:", error);
+    return null;
+  }
+}
+
+/**
+ * Alternative: Use Maestro API to find deployed script
+ */
+export async function findDeployedScriptUtxoViaMaestro(
+  scriptHash: string
+): Promise<{
+  txHash: string;
+  outputIndex: number;
+  scriptHash: string;
+} | null> {
+  try {
+    const maestroApiKey = process.env.MAESTRO_API_KEY!;
+    const network = process.env.NETWORK!;
+    const maestroNetwork = network === "mainnet" ? "mainnet" : "preview";
+    const networkId = getNetworkId();
+    const burnAddress = Core.getBurnAddress(networkId);
+
+    const url = `https://${maestroNetwork}.gomaestro-api.org/v1/addresses/${burnAddress.toBech32()}/utxos?order=desc&count=100`;
+
+    const response = await fetch(url, {
+      headers: { "api-key": maestroApiKey },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Maestro API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(`Maestro returned ${data.data.length} UTXOs from burn address`);
+
+    // Find UTXO with matching reference script
+    const deploymentUtxo = data.data.find(
+      (utxo: any) => utxo.reference_script?.hash === scriptHash
+    );
+
+    if (deploymentUtxo) {
+      return {
+        txHash: deploymentUtxo.tx_hash,
+        outputIndex: deploymentUtxo.index,
+        scriptHash,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Maestro search error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get all script references needed for a specific DAO operation
+ */
+export async function getRequiredScriptReferences(
+  daoPolicyId: string,
+  daoKey: string,
+  operation: "vote" | "proposal" | "treasury" | "action"
+): Promise<{
+  voteScript?: DeployedScriptReference;
+  proposalScript?: DeployedScriptReference;
+  treasuryScript?: DeployedScriptReference;
+  actionScript?: DeployedScriptReference;
+}> {
+  const results: any = {};
+
+  if (operation === "vote" || operation === "proposal") {
+    const voteScriptHash = getVoteScriptHashFromDAO(daoPolicyId, daoKey);
+    results.voteScript = await findDeployedScriptUtxoViaMaestro(voteScriptHash);
+  }
+
+  if (operation === "proposal") {
+    // Calculate proposal script hash
+    const votePolicyId = getScriptPolicyId("vote.vote.mint", [
+      daoPolicyId,
+      daoKey,
+    ]);
+    const proposalScript = createParameterizedScript(
+      "proposal.proposal.spend",
+      [daoPolicyId, daoKey, votePolicyId]
+    );
+    results.proposalScript = await findDeployedScriptUtxoViaMaestro(
+      proposalScript.hash()
+    );
+  }
+
+  // Add treasury and action script lookups as needed
+
+  return results;
 }
 
 export async function getDaoUtxo(

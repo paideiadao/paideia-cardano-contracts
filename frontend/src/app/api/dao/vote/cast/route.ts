@@ -12,7 +12,13 @@ import {
 } from "@/lib/server/helpers/vote-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 import { getProposalUtxo } from "@/lib/server/helpers/proposal-helpers";
-import { ProposalRedeemer, VoteRedeemer } from "@/lib/scripts/contracts";
+import {
+  ProposalRedeemer,
+  VoteRedeemer,
+} from "@/lib/scripts/contracts-compact";
+import { REFERENCE_SCRIPTS } from "@/lib/scripts/reference-scripts";
+import { maestroProvider } from "@/lib/server/maestro";
+import { TransactionId, TransactionInput } from "@blaze-cardano/core";
 
 interface CastVoteRequest {
   daoPolicyId: string;
@@ -289,23 +295,26 @@ async function buildVoteTransaction(
     currentProposal,
   } = params;
 
-  // Create scripts
-  const proposalSpendScript = createParameterizedScript(
-    "proposal.proposal.spend",
-    [daoPolicyId, daoKey, votePolicyId]
-  );
+  const referenceInputs = [
+    new TransactionInput(
+      TransactionId(REFERENCE_SCRIPTS.proposal.txHash),
+      BigInt(REFERENCE_SCRIPTS.proposal.outputIndex)
+    ),
+    new TransactionInput(
+      TransactionId(REFERENCE_SCRIPTS.vote.txHash),
+      BigInt(REFERENCE_SCRIPTS.vote.outputIndex)
+    ),
+  ];
 
-  const proposalMintScript = createParameterizedScript(
-    "proposal.proposal.mint",
-    [daoPolicyId, daoKey, votePolicyId]
-  );
+  const [proposalRefUtxo, voteRefUtxo] =
+    await blazeMaestroProvider.resolveUnspentOutputs(referenceInputs);
 
+  // Find UTXOs
   const voteSpendScript = createParameterizedScript("vote.vote.spend", [
     daoPolicyId,
     daoKey,
   ]);
 
-  // Find UTXOs
   const voteUtxos = await blaze.provider.getUnspentOutputs(
     addressFromScript(voteSpendScript)
   );
@@ -350,12 +359,11 @@ async function buildVoteTransaction(
     newTally
   );
 
-  // Try to use generated redeemer types
+  // Create redeemers
   let castVoteRedeemer: Core.PlutusData;
   let voteSpendRedeemer: Core.PlutusData;
 
   try {
-    // Try the generated types first
     castVoteRedeemer =
       ProposalRedeemer.CastVote ??
       Core.PlutusData.newConstrPlutusData(
@@ -367,7 +375,6 @@ async function buildVoteTransaction(
         new Core.ConstrPlutusData(1n, new Core.PlutusList())
       );
   } catch {
-    // Fall back to manual construction
     castVoteRedeemer = Core.PlutusData.newConstrPlutusData(
       new Core.ConstrPlutusData(1n, new Core.PlutusList())
     );
@@ -383,7 +390,8 @@ async function buildVoteTransaction(
   const currentSlot = getCurrentSlot();
   const validityStart = Core.Slot(Number(currentSlot));
   const validityEnd = Core.Slot(Number(currentSlot) + 3600);
-  // Calculate minimum ADA needed for the vote output with new tokens
+
+  // Calculate vote output value
   const voteInputValue = voteUtxo.output().amount();
   const voteInputCore = voteInputValue.toCore();
 
@@ -392,7 +400,6 @@ async function buildVoteTransaction(
     Core.AssetName(voteReceiptAssetName)
   );
 
-  // Create merged assets
   const mergedAssets = new Map(voteInputCore.assets ?? new Map());
   const existingQuantity = mergedAssets.get(receiptAssetId) ?? 0n;
   mergedAssets.set(receiptAssetId, existingQuantity + BigInt(votePower));
@@ -410,12 +417,11 @@ async function buildVoteTransaction(
   const transaction = await blaze
     .newTransaction()
     .addInput(seedUtxo)
-    .addInput(proposalUtxo, castVoteRedeemer)
     .addInput(voteUtxo, voteSpendRedeemer)
+    .addInput(proposalUtxo, castVoteRedeemer)
     .addReferenceInput(daoUtxo)
-    .provideScript(proposalSpendScript)
-    .provideScript(proposalMintScript)
-    .provideScript(voteSpendScript)
+    .addReferenceInput(proposalRefUtxo) // Reference input for proposal scripts
+    .addReferenceInput(voteRefUtxo) // Reference input for vote script
     .addMint(Core.PolicyId(proposalPolicyId), mintAssets, castVoteRedeemer)
     .lockAssets(
       proposalUtxo.output().address(),
@@ -424,7 +430,7 @@ async function buildVoteTransaction(
     )
     .lockAssets(
       voteUtxo.output().address(),
-      voteOutputValue, // Exact merge result - same ADA, added tokens
+      voteOutputValue,
       voteUtxo.output().datum()?.asInlineData()!
     )
     .setValidFrom(validityStart)

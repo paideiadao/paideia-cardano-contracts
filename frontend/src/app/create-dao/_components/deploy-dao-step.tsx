@@ -1,327 +1,416 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWallet } from "@meshsdk/react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import {
   Loader2,
   CheckCircle,
   AlertTriangle,
   ExternalLink,
+  Download,
+  Copy,
+  Play,
 } from "lucide-react";
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 import { getExplorerUrl } from "@/lib/utils";
+import { ScriptDeploymentSection } from "./deploy-scripts";
 
-type DeploymentState =
-  | "idle"
-  | "building"
-  | "signing"
-  | "submitting"
-  | "error-after-build";
-
-interface BuiltTxData {
-  unsignedTx: string;
-  daoPolicyId: string;
-  daoKey: string;
+interface DAOCreationPlan {
+  daoParams: {
+    seedUtxo: { txHash: string; outputIndex: number };
+    daoPolicyId: string;
+    daoKey: string;
+    governanceTokenHex: string;
+  };
+  scriptsToDeployData: Array<{
+    name: string;
+    scriptHash: string;
+    address: string;
+    parameters: string[];
+    size: number;
+  }>;
+  totalSteps: number;
+  estimatedCost: string;
 }
+
+interface DeployedScript {
+  name: string;
+  scriptHash: string;
+  address: string;
+  deploymentTx: string;
+  size: number;
+  parameters: string[];
+}
+
+type DeploymentPhase =
+  | "ready"
+  | "initialize"
+  | "deploy-scripts"
+  | "finalize"
+  | "complete";
 
 export default function DeployDaoStep() {
   const { wallet, connected } = useWallet();
   const {
     governanceToken,
     daoConfig,
+    deployedDAO,
+    setDeployedDAO,
     setDeployResults,
-    setCurrentStep,
-    daoTxHash,
-    daoPolicyId,
   } = useDAOCreationStore();
 
-  const [deploymentState, setDeploymentState] =
-    useState<DeploymentState>("idle");
-  const [builtTxData, setBuiltTxData] = useState<BuiltTxData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [currentPhase, setCurrentPhase] = useState<DeploymentPhase>("ready");
+  const [creationPlan, setCreationPlan] = useState<DAOCreationPlan | null>(
+    null
+  );
+  const [deployedScripts, setDeployedScripts] = useState<DeployedScript[]>([]);
 
-  const handleDeploy = async () => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deploymentProgress, setDeploymentProgress] = useState(0);
+
+  // Check if DAO is already deployed
+  useEffect(() => {
+    if (deployedDAO) {
+      setCurrentPhase("complete");
+      setDeploymentProgress(100);
+    }
+  }, [deployedDAO]);
+
+  const initializeDAO = async () => {
     if (!connected || !wallet || !governanceToken || !daoConfig) {
-      setError("Missing required data for deployment");
+      setError("Missing required data - please complete previous steps");
       return;
     }
 
+    setIsProcessing(true);
     setError(null);
+    setCurrentPhase("initialize");
+    setDeploymentProgress(10);
 
     try {
-      let txData = builtTxData;
+      const usedAddresses = await wallet.getUsedAddresses();
+      const walletAddress = usedAddresses[0];
 
-      if (!txData) {
-        setDeploymentState("building");
-        console.log("=== Starting DAO Deployment ===");
+      console.log("🔄 Initializing DAO creation...");
 
-        const usedAddresses = await wallet.getUsedAddresses();
-        const address = usedAddresses[0];
-        const collateral = await wallet.getCollateral();
-        // const changeAddress = await wallet.getChangeAddress();
+      const response = await fetch("/api/dao/deploy/initialize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress,
+          daoConfig: {
+            ...daoConfig,
+            governanceToken: {
+              policyId: governanceToken.policyId,
+              assetName: governanceToken.assetName,
+            },
+          },
+        }),
+      });
 
-        if (!collateral?.length) {
-          throw new Error("No collateral available");
-        }
-
-        console.log("✓ Wallet data obtained");
-
-        const response = await fetch("/api/dao/deploy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            governanceToken,
-            daoConfig,
-            walletAddress: address,
-            collateral,
-            // changeAddress,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(
-            errorData.error ?? "Failed to build deployment transaction"
-          );
-        }
-
-        txData = await response.json();
-        setBuiltTxData(txData);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error ?? "Failed to initialize DAO creation");
       }
 
-      if (!txData) {
-        throw new Error("Failed to build deployment transaction");
-      }
+      const { plan } = await response.json();
+      setCreationPlan(plan);
+      setCurrentPhase("deploy-scripts");
+      setDeploymentProgress(25);
 
-      setDeploymentState("signing");
-      console.log("Transaction built, signing...");
-      const signedTx = await wallet.signTx(txData.unsignedTx, true);
-
-      setDeploymentState("submitting");
-      console.log("Submitting transaction...");
-      const deployTxHash = await wallet.submitTx(signedTx);
-
-      console.log("✓ DAO deployed:", deployTxHash);
-      console.log("✓ DAO Policy ID:", txData.daoPolicyId);
-      console.log("✓ DAO Key:", txData.daoKey);
-
-      setDeployResults(deployTxHash, txData.daoPolicyId, txData.daoKey);
-      setDeploymentState("idle");
-      setBuiltTxData(null);
+      console.log("✅ DAO initialization complete, ready to deploy scripts");
     } catch (err: any) {
-      console.error("❌ Deployment error:", err);
+      console.error("❌ DAO initialization failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to initialize DAO");
+      setCurrentPhase("ready");
+      setDeploymentProgress(0);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-      if (builtTxData) {
-        setDeploymentState("error-after-build");
-      } else {
-        setDeploymentState("idle");
+  const handleScriptDeploymentComplete = (scripts: DeployedScript[]) => {
+    console.log(
+      "📝 Script deployment complete callback called with:",
+      scripts.length,
+      "scripts"
+    );
+    setDeployedScripts(scripts);
+    setCurrentPhase("finalize");
+    setDeploymentProgress(75);
+    // Auto-proceed to finalization
+    finalizeDAO(scripts);
+  };
+
+  const finalizeDAO = async (scripts: DeployedScript[]) => {
+    console.log("🔍 FINALIZATION STATE CHECK:");
+    console.log("connected:", connected);
+    console.log("wallet:", !!wallet);
+    console.log("creationPlan:", !!creationPlan, creationPlan);
+    console.log("deployedScripts.length:", scripts.length, scripts);
+
+    if (!connected || !wallet || !creationPlan || !scripts.length) {
+      setError("Invalid state for DAO finalization");
+      return;
+    }
+
+    setIsProcessing(true);
+    setDeploymentProgress(80);
+
+    try {
+      const usedAddresses = await wallet.getUsedAddresses();
+      const walletAddress = usedAddresses[0];
+      const collateral = await wallet.getCollateral();
+      const changeAddress = await wallet.getChangeAddress();
+
+      console.log("🏗️ Finalizing DAO creation...");
+
+      const response = await fetch("/api/dao/deploy/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daoConfig: {
+            ...daoConfig,
+            governanceToken: {
+              policyId: governanceToken!.policyId,
+              assetName: governanceToken!.assetName,
+            },
+          },
+          daoParams: creationPlan.daoParams,
+          deployedScripts: scripts,
+          walletAddress,
+          collateral,
+          changeAddress,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error ?? "Failed to finalize DAO creation");
       }
 
-      setError(err instanceof Error ? err.message : "Failed to deploy DAO");
+      const { unsignedTx, dao } = await response.json();
+
+      console.log("✓ DAO transaction built, requesting signature...");
+      setDeploymentProgress(90);
+
+      const signedTx = await wallet.signTx(unsignedTx, true);
+      const txHash = await wallet.submitTx(signedTx);
+
+      console.log(`✓ DAO created: ${txHash}`);
+
+      const finalDAO = {
+        ...dao,
+        creationTx: txHash,
+      };
+
+      // Update both the new and legacy store fields
+      setDeployedDAO(finalDAO);
+      setDeployResults(txHash, dao.policyId, dao.assetName);
+
+      setCurrentPhase("complete");
+      setDeploymentProgress(100);
+
+      console.log("🎉 DAO creation complete!");
+    } catch (err: any) {
+      console.error("❌ DAO finalization failed:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to finalize DAO creation"
+      );
+      setDeploymentProgress(75);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleVerifyDeployment = async () => {
-    // Placeholder for verification logic
-    console.log("Verify deployment clicked - need to implement");
+  const downloadDAOConfig = () => {
+    if (!deployedDAO) return;
+
+    const config = {
+      dao: deployedDAO,
+      scripts: deployedScripts,
+      governanceToken,
+      daoConfig,
+      network: process.env.NETWORK,
+      createdAt: new Date().toISOString(),
+    };
+
+    const blob = new Blob([JSON.stringify(config, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dao-${daoConfig?.name
+      ?.toLowerCase()
+      .replace(/\s+/g, "-")}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
-  const handleContinue = () => {
-    setCurrentStep(3);
+  const copyDAOInfo = async () => {
+    if (!deployedDAO) return;
+
+    const info = `DAO Created Successfully!
+      Name: ${daoConfig?.name}
+      Policy ID: ${deployedDAO.policyId}
+      Asset Name: ${deployedDAO.assetName}
+      Creation Tx: ${deployedDAO.creationTx}
+      Network: ${process.env.NETWORK}`;
+
+    await navigator.clipboard.writeText(info);
   };
 
-  const getButtonText = () => {
-    switch (deploymentState) {
-      case "building":
-        return "Building Transaction...";
-      case "signing":
-        return "Waiting for Signature...";
-      case "submitting":
-        return "Submitting Transaction...";
-      case "error-after-build":
-        return "Try Again";
-      default:
-        return "Deploy DAO";
-    }
-  };
-
-  const isDeployDisabled =
-    deploymentState === "building" ||
-    deploymentState === "signing" ||
-    deploymentState === "submitting" ||
-    !connected;
-
-  if (daoTxHash) {
+  // Completion state
+  if (currentPhase === "complete" && deployedDAO) {
     return (
       <div className="space-y-6">
         <Alert>
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-2">
-              <p className="font-medium">🎉 DAO Successfully Deployed!</p>
-              <p className="text-sm">
-                Your DAO is now live on the Cardano blockchain and ready for
+              <p className="font-medium">🎉 DAO Created Successfully!</p>
+              <p>
+                Your decentralized organization is now live and ready for
                 governance.
               </p>
-              <div className="flex items-center gap-2 mt-3">
-                <span className="text-sm font-mono bg-muted px-2 py-1 rounded">
-                  {daoTxHash}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      getExplorerUrl(`/transaction/${daoTxHash}`),
-                      "_blank"
-                    )
-                  }
-                >
-                  <ExternalLink className="h-3 w-3 mr-1" />
-                  View
-                </Button>
-              </div>
             </div>
           </AlertDescription>
         </Alert>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>DAO Summary</CardTitle>
-            <CardDescription>Your deployed DAO configuration</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <h4 className="font-medium text-sm mb-2">Basic Information</h4>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-muted-foreground">Name:</span>{" "}
-                    {daoConfig?.name}
-                  </p>
-                  {/* <p>
-                    <span className="text-muted-foreground">Description:</span>{" "}
-                    {daoConfig?.description}
-                  </p> */}
-                  <p>
-                    <span className="text-muted-foreground">Policy ID:</span>{" "}
-                    {daoPolicyId}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-medium text-sm mb-2">Governance Token</h4>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-muted-foreground">Token:</span>{" "}
-                    {governanceToken?.name} ({governanceToken?.symbol})
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Decimals:</span>{" "}
-                    {governanceToken?.decimals}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-medium text-sm mb-2">Voting Parameters</h4>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-muted-foreground">Threshold:</span>{" "}
-                    {daoConfig?.threshold}%
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Quorum:</span>{" "}
-                    {daoConfig?.quorum} {governanceToken?.symbol}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-medium text-sm mb-2">Proposal Timing</h4>
-                <div className="space-y-1 text-sm">
-                  <p>
-                    <span className="text-muted-foreground">Min Duration:</span>{" "}
-                    {daoConfig?.minProposalTime} minutes
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Max Duration:</span>{" "}
-                    {daoConfig?.maxProposalTime} minutes
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button onClick={handleContinue}>Continue to Treasury Setup</Button>
+        <div className="grid grid-cols-2 gap-4 p-4 border rounded-lg">
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">
+              DAO Name
+            </span>
+            <p className="font-medium">{daoConfig?.name}</p>
+          </div>
+          <div>
+            <span className="text-sm font-medium text-muted-foreground">
+              Network
+            </span>
+            <Badge>{process.env.NETWORK}</Badge>
+          </div>
+          <div className="col-span-2">
+            <span className="text-sm font-medium text-muted-foreground">
+              Policy ID
+            </span>
+            <p className="font-mono text-xs break-all">
+              {deployedDAO.policyId}
+            </p>
+          </div>
+          <div className="col-span-2">
+            <span className="text-sm font-medium text-muted-foreground">
+              Asset Name
+            </span>
+            <p className="font-mono text-xs break-all">
+              {deployedDAO.assetName}
+            </p>
+          </div>
         </div>
+
+        <div className="flex gap-2 flex-wrap">
+          <Button onClick={downloadDAOConfig}>
+            <Download className="w-4 h-4 mr-2" />
+            Download Config
+          </Button>
+          <Button variant="outline" onClick={copyDAOInfo}>
+            <Copy className="w-4 h-4 mr-2" />
+            Copy DAO Info
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() =>
+              window.open(
+                getExplorerUrl(`/transaction/${deployedDAO.creationTx}`),
+                "_blank"
+              )
+            }
+          >
+            <ExternalLink className="w-4 h-4 mr-2" />
+            View Creation Tx
+          </Button>
+          <Button
+            onClick={() =>
+              window.open(
+                `/dao?policyId=${deployedDAO.policyId}&assetName=${deployedDAO.assetName}`,
+                "_blank"
+              )
+            }
+          >
+            Open DAO →
+          </Button>
+        </div>
+
+        <Alert>
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-medium">What's Next?</p>
+              <ol className="list-decimal list-inside space-y-1 text-sm">
+                <li>Share the DAO Policy ID with your community</li>
+                <li>
+                  Community members can register to vote by locking governance
+                  tokens
+                </li>
+                <li>Create your first proposals for community voting</li>
+                <li>Manage treasury funds through approved proposals</li>
+              </ol>
+            </div>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Deploy Your DAO</CardTitle>
-          <CardDescription>
-            Create your DAO on-chain with the configuration you've set up
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Deployment Summary</h3>
+      {/* Deployment Progress */}
+      {deploymentProgress > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span>Deployment Progress</span>
+            <span>{Math.round(deploymentProgress)}%</span>
+          </div>
+          <Progress value={deploymentProgress} className="w-full" />
+        </div>
+      )}
 
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="border-l-4 border-blue-500 pl-4">
-                  <h4 className="font-semibold text-blue-700">DAO Contract</h4>
-                  <p className="text-sm text-muted-foreground">
-                    Creates the core DAO with your governance rules
-                  </p>
-                </div>
-
-                <div className="border-l-4 border-green-500 pl-4">
-                  <h4 className="font-semibold text-green-700">
-                    Unique Identifier
-                  </h4>
-                  <p className="text-sm text-muted-foreground">
-                    Mints a unique NFT that identifies your DAO
-                  </p>
-                </div>
+      {/* Ready to start */}
+      {currentPhase === "ready" && (
+        <div className="space-y-4">
+          <div className="p-4 border rounded-lg space-y-3">
+            <h3 className="font-medium">Ready to Deploy DAO</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">DAO Name:</span>
+                <span className="ml-2 font-medium">{daoConfig?.name}</span>
               </div>
-
-              <div className="space-y-3">
-                <div className="border-l-4 border-purple-500 pl-4">
-                  <h4 className="font-semibold text-purple-700">
-                    Governance Token
-                  </h4>
-                  <p className="text-sm text-muted-foreground">
-                    {governanceToken?.name} ({governanceToken?.symbol})
-                  </p>
-                </div>
-
-                <div className="border-l-4 border-orange-500 pl-4">
-                  <h4 className="font-semibold text-orange-700">
-                    Voting Rules
-                  </h4>
-                  <p className="text-sm text-muted-foreground">
-                    {daoConfig?.threshold}% threshold, {daoConfig?.quorum}{" "}
-                    quorum
-                  </p>
-                </div>
+              <div>
+                <span className="text-muted-foreground">Governance Token:</span>
+                <span className="ml-2 font-medium">
+                  {governanceToken?.name}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Threshold:</span>
+                <span className="ml-2 font-medium">
+                  {daoConfig?.threshold}%
+                </span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Quorum:</span>
+                <span className="ml-2 font-medium">
+                  {daoConfig?.quorum?.toLocaleString()}
+                </span>
               </div>
             </div>
           </div>
@@ -330,68 +419,99 @@ export default function DeployDaoStep() {
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               <div className="space-y-2">
-                <p className="font-medium">Important Notes:</p>
-                <ul className="text-sm space-y-1 ml-4">
+                <p className="font-medium">Deployment Process</p>
+                <ol className="list-decimal list-inside space-y-1 text-sm">
+                  <li>Initialize DAO parameters and calculate policy IDs</li>
                   <li>
-                    • DAO parameters are <strong>immutable</strong> once
-                    deployed
+                    Deploy reference scripts (vote, treasury, proposal, actions)
                   </li>
-                  <li>• You'll need ADA for transaction fees (~2-5 ADA)</li>
-                  <li>• The DAO will be immediately active for governance</li>
-                  <li>• Treasury setup is optional and can be done later</li>
-                </ul>
+                  <li>Create the DAO NFT with script references</li>
+                  <li>Your DAO will be ready for governance!</li>
+                </ol>
+                <p className="text-sm">
+                  This process requires multiple transactions and may take
+                  several minutes.
+                </p>
               </div>
             </AlertDescription>
           </Alert>
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+          <Button
+            onClick={initializeDAO}
+            disabled={
+              !connected || isProcessing || !governanceToken || !daoConfig
+            }
+            className="w-full"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Initializing...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Start DAO Deployment
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
-          <div className="flex justify-between pt-4">
-            <Button
-              variant="outline"
-              onClick={() => setCurrentStep(1)}
-              disabled={deploymentState !== "idle"}
-            >
-              Back to Configuration
-            </Button>
-
-            <div className="flex gap-2">
-              <Button
-                onClick={handleDeploy}
-                disabled={isDeployDisabled}
-                className="min-w-[150px]"
-              >
-                {deploymentState !== "idle" &&
-                deploymentState !== "error-after-build" ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {getButtonText()}
-                  </>
-                ) : (
-                  getButtonText()
-                )}
-              </Button>
-
-              {deploymentState === "error-after-build" && (
-                <Button variant="outline" onClick={handleVerifyDeployment}>
-                  Verify Deployment
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {!connected && (
-            <p className="text-sm text-muted-foreground text-center">
-              Please connect your wallet to deploy your DAO
+      {/* Initialization phase */}
+      {currentPhase === "initialize" && (
+        <Alert>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <AlertDescription>
+            <p className="font-medium">Initializing DAO creation...</p>
+            <p className="text-sm">
+              Calculating parameters and preparing deployment plan.
             </p>
-          )}
-        </CardContent>
-      </Card>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Script deployment phase */}
+      {currentPhase === "deploy-scripts" && creationPlan && (
+        <ScriptDeploymentSection
+          scriptsToDeployData={creationPlan.scriptsToDeployData}
+          daoParams={creationPlan.daoParams}
+          onDeploymentComplete={handleScriptDeploymentComplete}
+          onError={setError}
+        />
+      )}
+
+      {/* Finalization phase */}
+      {currentPhase === "finalize" && (
+        <Alert>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-medium">Creating DAO...</p>
+              <p className="text-sm">
+                Scripts deployed successfully. Now creating the DAO NFT and
+                finalizing deployment.
+              </p>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {!connected && (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            Please connect your wallet to deploy your DAO
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }
