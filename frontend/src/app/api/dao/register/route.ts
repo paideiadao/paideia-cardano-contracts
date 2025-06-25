@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
       changeAddress,
     }: RegisterRequest = await request.json();
 
+    console.log(collateral);
+
     if (!collateral?.length) {
       throw new Error("No collateral available, please set it in your wallet");
     }
@@ -159,6 +161,7 @@ async function buildRegistrationTransaction(
 ): Promise<Core.Transaction> {
   const {
     seedUtxo,
+
     governanceUtxos,
     daoUtxo,
     voteScriptRefUtxo,
@@ -269,9 +272,22 @@ async function buildRegistrationTransaction(
     `  Minting: ${voteScriptHash}.${referenceAssetName} + ${voteScriptHash}.${voteNftAssetName}`
   );
 
+  // const collateralInputs = params.collateral.map(
+  //   (col: any) =>
+  //     new Core.TransactionInput(
+  //       Core.TransactionId(col.input.txHash),
+  //       BigInt(col.input.outputIndex)
+  //     )
+  // );
+
+  // const collateralUtxos = await blazeMaestroProvider.resolveUnspentOutputs(
+  //   collateralInputs
+  // );
+
   // Build transaction
   let txBuilder = blaze
     .newTransaction()
+    // .provideCollateral(collateralUtxos)
     .addInput(seedUtxo)
     .addReferenceInput(daoUtxo) // DAO reference for validation
     .addReferenceInput(voteScriptRefUtxo) // Vote script reference

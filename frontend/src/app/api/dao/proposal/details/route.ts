@@ -46,8 +46,9 @@ export interface ProposalDetails {
   userVoteInfo?: {
     hasVoted: boolean;
     votedOption?: number;
-    votePower?: number;
+    votedAmount?: number;
     canVote: boolean;
+    votePower: number; // Always full registered amount
   };
 }
 

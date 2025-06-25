@@ -24,6 +24,7 @@ import {
   useDAOCreationStore,
   DAOConfig,
 } from "@/lib/stores/dao-creation-store";
+import { formatDuration } from "@/lib/utils";
 
 interface DAOConfigStepProps {
   onComplete: () => void;
@@ -35,16 +36,24 @@ interface ValidationError {
 }
 
 export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
-  const { setDAOConfig, daoConfig, governanceToken } = useDAOCreationStore();
+  const {
+    setDAOConfig,
+    daoConfig,
+    governanceToken,
+    daoTxHash,
+    deployedDAO,
+    setDeployResults,
+    setDeployedDAO,
+  } = useDAOCreationStore();
 
   const [config, setConfig] = useState<DAOConfig>({
     name: "",
     // description: "", // dao data does not have a description field
-    threshold: 60, // From test_dao_datum
-    minProposalTime: 40, // 2400 seconds = 40 minutes
-    maxProposalTime: 47, // 2800 seconds = 47 minutes
-    quorum: 10, // From test_dao_datum
-    minGovProposalCreate: 1000, // From test_dao_datum
+    threshold: 60,
+    minProposalTime: 5 * 60 * 1000, // 5 minutes in ms
+    maxProposalTime: 120 * 60 * 1000, // 120 minutes in ms
+    quorum: 10,
+    minGovProposalCreate: 100,
   });
 
   const [errors, setErrors] = useState<ValidationError[]>([]);
@@ -99,14 +108,15 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     }
 
     // Reasonable time bounds (1 minute to 30 days)
-    if (configToValidate.minProposalTime < 1) {
+    if (configToValidate.minProposalTime < 60 * 1000) {
+      // 1 minute in ms
       validationErrors.push({
         field: "minProposalTime",
         message: "Minimum proposal time must be at least 1 minute",
       });
     }
-    if (configToValidate.maxProposalTime > 43200) {
-      // 30 days in minutes
+    if (configToValidate.maxProposalTime > 30 * 24 * 60 * 60 * 1000) {
+      // 30 days in ms
       validationErrors.push({
         field: "maxProposalTime",
         message: "Maximum proposal time cannot exceed 30 days",
@@ -160,6 +170,13 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     setErrors(validationErrors);
 
     if (validationErrors.length === 0) {
+      // Clear deployment data if there was any existing deployment
+      // since we're updating the config, any previous deployment is now invalid
+      if (daoTxHash || deployedDAO) {
+        setDeployResults("", "", "");
+        setDeployedDAO(null);
+      }
+
       setDAOConfig(config);
       onComplete();
     }
@@ -174,11 +191,10 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
   };
 
   const isFormValid = errors.length === 0 && config.name.trim();
-  // && config.description.trim();
 
-  // Calculate contract values for display
-  const minProposalTimeSeconds = config.minProposalTime * 60;
-  const maxProposalTimeSeconds = config.maxProposalTime * 60;
+  // Replace the old calculations:
+  const minProposalTimeDisplay = formatDuration(config.minProposalTime);
+  const maxProposalTimeDisplay = formatDuration(config.maxProposalTime);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -407,17 +423,14 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                   <Input
                     id="minProposalTime"
                     type="number"
-                    value={config.minProposalTime}
+                    value={config.minProposalTime / (60 * 1000)} // Show as minutes
                     onChange={(e) =>
                       handleInputChange(
                         "minProposalTime",
-                        parseInt(e.target.value) || 0
+                        (parseInt(e.target.value) || 0) * 60 * 1000 // Convert minutes to ms
                       )
                     }
                     min={1}
-                    className={
-                      hasFieldError("minProposalTime") ? "border-red-500" : ""
-                    }
                   />
                   {hasFieldError("minProposalTime") && (
                     <p className="text-sm text-red-600 mt-1">
@@ -425,7 +438,7 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    Contract value: {minProposalTimeSeconds} seconds
+                    Contract value: {minProposalTimeDisplay}
                   </p>
                 </div>
 
@@ -439,11 +452,11 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                   <Input
                     id="maxProposalTime"
                     type="number"
-                    value={config.maxProposalTime}
+                    value={config.maxProposalTime / (60 * 1000)} // Show as minutes
                     onChange={(e) =>
                       handleInputChange(
                         "maxProposalTime",
-                        parseInt(e.target.value) || 0
+                        (parseInt(e.target.value) || 0) * 60 * 1000 // Convert minutes to ms
                       )
                     }
                     min={1}
@@ -457,7 +470,7 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
-                    Contract value: {maxProposalTimeSeconds} seconds
+                    Contract value: {maxProposalTimeDisplay}
                   </p>
                 </div>
               </div>

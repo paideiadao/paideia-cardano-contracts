@@ -119,15 +119,14 @@ export default function CreateProposalPage() {
   // Set default times when DAO info loads
   useEffect(() => {
     if (daoInfo) {
-      const defaultStartTime = new Date();
-      // End time: respects minimum duration from start time
+      const defaultStartTime = new Date(Date.now() + 2 * 60 * 1000); // 2 min from now
+      // End time: respects minimum duration
       const defaultEndTime = new Date(
-        defaultStartTime.getTime() +
-          Math.max(daoInfo.minProposalTime * 1000, 24 * 60 * 60)
+        defaultStartTime.getTime() + daoInfo.minProposalTime // Already in ms
       );
       // Action activation: 1 hour after voting ends
       const defaultActivationTime = new Date(
-        defaultEndTime.getTime() + 60 * 60
+        defaultEndTime.getTime() + 60 * 60 * 1000 // 1 hour in ms
       );
 
       setProposal((prev) => ({
@@ -195,7 +194,7 @@ export default function CreateProposalPage() {
       // Auto-adjust dependent times
       if (field === "startTime" && dateValue && daoInfo) {
         const minEndTime = new Date(
-          dateValue.getTime() + daoInfo.minProposalTime * 1000
+          dateValue.getTime() + daoInfo.minProposalTime // already in ms
         );
         if (!proposal.endTime || proposal.endTime < minEndTime) {
           setProposal((prev) => ({ ...prev, endTime: minEndTime }));
@@ -223,17 +222,18 @@ export default function CreateProposalPage() {
 
   const getTimeConstraints = () => {
     const now = new Date();
-    const minStartTime = new Date(now.getTime()); // 2 minutes from now
+    const minStartTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
 
     let minEndTime = new Date();
     let maxEndTime = new Date();
 
     if (proposal.startTime && daoInfo) {
+      // daoInfo times are already in milliseconds
       minEndTime = new Date(
-        proposal.startTime.getTime() + daoInfo.minProposalTime * 1000
+        proposal.startTime.getTime() + daoInfo.minProposalTime
       );
       maxEndTime = new Date(
-        proposal.startTime.getTime() + daoInfo.maxProposalTime * 1000
+        proposal.startTime.getTime() + daoInfo.maxProposalTime
       );
     }
 
@@ -242,7 +242,9 @@ export default function CreateProposalPage() {
       minEnd: formatDateTimeLocal(minEndTime),
       maxEnd: formatDateTimeLocal(maxEndTime),
       minActivation: proposal.endTime
-        ? formatDateTimeLocal(proposal.endTime)
+        ? formatDateTimeLocal(
+            new Date(proposal.endTime.getTime() + 60 * 60 * 1000)
+          ) // 1 hour after end
         : "",
     };
   };
@@ -700,8 +702,8 @@ export default function CreateProposalPage() {
                   onChange={(e) =>
                     handleProposalChange("endTime", e.target.value)
                   }
-                  min={+timeConstraints.minEnd * 1000}
-                  max={+timeConstraints.maxEnd * 1000}
+                  min={timeConstraints.minEnd}
+                  max={timeConstraints.maxEnd}
                   required
                 />
                 <div className="flex items-center gap-2 mt-1">
@@ -713,9 +715,8 @@ export default function CreateProposalPage() {
                       <span className="ml-2 font-medium">
                         (Current:{" "}
                         {formatDuration(
-                          (proposal.endTime.getTime() -
-                            proposal.startTime.getTime()) /
-                            1000
+                          proposal.endTime.getTime() -
+                            proposal.startTime.getTime()
                         )}
                         )
                       </span>

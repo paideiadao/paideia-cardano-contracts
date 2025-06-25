@@ -20,6 +20,8 @@ interface DeployDAORequest {
   // changeAddress: string;
 }
 
+// DEPRACATED, USE finalize/route.ts
+
 export async function POST(request: NextRequest) {
   try {
     const {

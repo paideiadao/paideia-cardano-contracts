@@ -26,15 +26,39 @@ export function getExplorerUrl(path: string, network?: string): string {
   return `https://${networkPrefix}cardanoscan.io${path}`;
 }
 
-export function formatDuration(milliseconds: number): string {
-  const seconds = Math.floor(milliseconds / 1000);
-  const minutes = Math.floor(seconds / 60);
+export function formatDuration(
+  milliseconds: number,
+  format: "short" | "long" = "short"
+): string {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
-  if (days > 0) return `${days}d ${hours % 24}h`;
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  return `${minutes}m`;
+  const remainingHours = hours % 24;
+  const remainingMinutes = minutes % 60;
+
+  if (format === "short") {
+    // Short format: "2d 3h", "5h 30m", "45m"
+    if (days > 0) return `${days}d ${remainingHours}h`;
+    if (hours > 0) return `${hours}h ${remainingMinutes}m`;
+    return `${minutes}m`;
+  } else {
+    // Long format: "2 days, 3 hours, and 30 minutes"
+    const parts: string[] = [];
+
+    if (days > 0) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
+    if (remainingHours > 0)
+      parts.push(`${remainingHours} hour${remainingHours !== 1 ? "s" : ""}`);
+    if (remainingMinutes > 0)
+      parts.push(`${remainingMinutes} min${remainingMinutes !== 1 ? "s" : ""}`);
+
+    if (parts.length === 0) return "0 minutes";
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return parts.join(" and ");
+
+    return parts.slice(0, -1).join(", ") + ", and " + parts[parts.length - 1];
+  }
 }
 
 export function formatAssetQuantity(quantity: string, decimals = 0): string {

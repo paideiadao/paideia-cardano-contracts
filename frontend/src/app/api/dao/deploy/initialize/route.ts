@@ -7,7 +7,7 @@ import {
   addressFromScript,
 } from "@/lib/server/helpers/script-helpers";
 
-interface DAOConfig {
+export interface DAOConfig {
   name: string;
   description: string;
   governanceToken: {
@@ -15,8 +15,8 @@ interface DAOConfig {
     assetName: string;
   };
   threshold: number; // percentage
-  minProposalTime: number; // seconds
-  maxProposalTime: number; // seconds
+  minProposalTime: number; // milliseconds
+  maxProposalTime: number; // milliseconds
   quorum: number; // minimum votes needed
   minGovProposalCreate: number; // tokens needed to create proposal
   image?: string; // optional DAO logo

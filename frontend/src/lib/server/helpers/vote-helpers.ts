@@ -303,8 +303,9 @@ export async function getUserVoteStatus(
 ): Promise<{
   hasVoted: boolean;
   votedOption?: number;
-  votePower?: number;
+  votedAmount?: number;
   canVote: boolean;
+  votePower: number; // Always full registered amount
 }> {
   try {
     const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
@@ -316,19 +317,72 @@ export async function getUserVoteStatus(
     );
 
     if (!userVoteInfo) {
-      return { hasVoted: false, canVote: false };
+      return { hasVoted: false, canVote: false, votePower: 0 };
     }
 
-    // Check if user has voted on this specific proposal
-    // This would involve checking vote receipt tokens in the user's vote UTXO
-    // For now, simplified implementation
+    // Check for existing vote receipt tokens for this proposal
+    const voteUtxo = await getVoteUtxo(daoPolicyId, daoKey, userVoteInfo.utxo);
+    if (!voteUtxo) {
+      return { hasVoted: false, canVote: false, votePower: 0 };
+    }
+
+    const voteValue = voteUtxo.output().amount().toCore();
+    let hasVoted = false;
+    let votedOption: number | undefined;
+    let votedAmount = 0;
+
+    // Look for vote receipt tokens for this specific proposal
+    if (voteValue.assets) {
+      for (const [assetId, quantity] of voteValue.assets) {
+        const policyId = Core.AssetId.getPolicyId(assetId);
+        const assetName = Core.AssetId.getAssetName(assetId);
+
+        if (policyId === proposalPolicyId) {
+          // Check which option this receipt token is for
+          for (let optionIndex = 0; optionIndex < 10; optionIndex++) {
+            const expectedReceiptIdentifier = createVoteReceiptIdentifier(
+              proposalAssetName,
+              optionIndex
+            );
+
+            if (assetName === expectedReceiptIdentifier) {
+              hasVoted = true;
+              votedOption = optionIndex;
+              votedAmount = Number(quantity);
+              break;
+            }
+          }
+        }
+      }
+    }
+
     return {
-      hasVoted: false, // TODO: Check for vote receipt tokens
-      canVote: true,
-      votePower: userVoteInfo.lockedGovernanceTokens,
+      hasVoted,
+      votedOption,
+      votedAmount,
+      canVote: true, // Always true if you're registered and proposal is active
+      votePower: userVoteInfo.lockedGovernanceTokens, // Full registered amount
     };
   } catch (error) {
     console.error("Error getting user vote status:", error);
-    return { hasVoted: false, canVote: false };
+    return { hasVoted: false, canVote: false, votePower: 0 };
   }
+}
+
+export function createVoteReceiptIdentifier(
+  proposalIdentifier: string,
+  index: number
+): string {
+  const voteReceiptData = Core.PlutusData.newConstrPlutusData(
+    new Core.ConstrPlutusData(
+      0n,
+      (() => {
+        const list = new Core.PlutusList();
+        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier)));
+        list.add(Core.PlutusData.newInteger(BigInt(index)));
+        return list;
+      })()
+    )
+  );
+  return Core.blake2b_256(voteReceiptData.toCbor());
 }

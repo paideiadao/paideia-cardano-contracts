@@ -490,7 +490,9 @@ export function ScriptDeploymentSection({
         </CardTitle>
         <CardDescription>
           Deploy validator scripts as reference scripts to reduce transaction
-          sizes. Scanning burn address for existing deployments...
+          sizes. This step cannot be skipped. Without deployed reference
+          scripts, creating proposals and submitting votes are too large for the
+          Cardano blockchain which limits transactions to 16kb.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -498,7 +500,7 @@ export function ScriptDeploymentSection({
           <Alert>
             <Loader2 className="h-4 w-4 animate-spin" />
             <AlertDescription>
-              Scanning burn address for existing script deployments...
+              Scanning for existing script deployments...
             </AlertDescription>
           </Alert>
         )}
