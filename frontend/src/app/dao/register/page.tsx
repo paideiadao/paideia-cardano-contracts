@@ -51,8 +51,9 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     txHash: string;
-    votePolicyId: string;
+    // votePolicyId: string;
     voteNftAssetName: string;
+    voteScriptHash: string;
   } | null>(null);
 
   useEffect(() => {
@@ -112,7 +113,6 @@ export default function RegisterPage() {
       setGovernanceBalance(0);
     }
   };
-
   const handleRegister = async () => {
     if (!connected || !wallet || !daoInfo || !policyId || !assetName) {
       setError("Missing required data for registration");
@@ -145,6 +145,14 @@ export default function RegisterPage() {
       }
 
       console.log("✓ Building registration transaction");
+      console.log("Request params:", {
+        daoPolicyId: policyId,
+        daoKey: assetName,
+        governanceTokenAmount: registrationAmount,
+        walletAddress: address,
+        changeAddress,
+        collateralCount: collateral.length,
+      });
 
       const response = await fetch("/api/dao/register", {
         method: "POST",
@@ -161,33 +169,117 @@ export default function RegisterPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("❌ Server response error:", errorData);
         throw new Error(
           errorData.error ?? "Failed to build registration transaction"
         );
       }
 
-      const { unsignedTx, votePolicyId, voteNftAssetName } =
+      const { unsignedTx, voteScriptHash, governanceTokensLocked } =
         await response.json();
 
+      console.log("✓ Transaction built successfully");
+      console.log("Response data:", {
+        voteScriptHash,
+        governanceTokensLocked,
+        unsignedTxLength: unsignedTx.length,
+      });
+
       setRegistrationState("signing");
-      console.log("Transaction built, signing...");
-      const signedTx = await wallet.signTx(unsignedTx, true);
+      console.log("🖊️ Requesting wallet signature...");
+
+      let signedTx;
+      try {
+        signedTx = await wallet.signTx(unsignedTx, true);
+        console.log("✓ Transaction signed successfully");
+        console.log("Signed tx length:", signedTx.length);
+      } catch (signError) {
+        console.error("❌ Signing failed:", signError);
+        throw new Error(
+          `Failed to sign transaction: ${
+            signError instanceof Error
+              ? signError.message
+              : "Unknown signing error"
+          }`
+        );
+      }
 
       setRegistrationState("submitting");
-      console.log("Submitting transaction...");
-      const txHash = await wallet.submitTx(signedTx);
+      console.log("📤 Submitting transaction to blockchain...");
 
-      console.log("✓ Registration successful:", txHash);
+      let txHash;
+      try {
+        txHash = await wallet.submitTx(signedTx);
+        console.log("✓ Transaction submitted successfully");
+        console.log("TX Hash:", txHash);
+      } catch (submitError) {
+        console.error("❌ Transaction submission failed:", submitError);
+        console.error("Submit error details:", {
+          error: submitError,
+          message:
+            submitError instanceof Error
+              ? submitError.message
+              : "Unknown submit error",
+          stack: submitError instanceof Error ? submitError.stack : undefined,
+        });
 
+        // Try to extract more specific error information
+        if (submitError instanceof Error) {
+          const errorMessage = submitError.message.toLowerCase();
+
+          if (errorMessage.includes("insufficient")) {
+            throw new Error(
+              "Insufficient funds for transaction fees or minimum UTxO requirements"
+            );
+          } else if (errorMessage.includes("collateral")) {
+            throw new Error(
+              "Collateral validation failed - please check your collateral UTxOs"
+            );
+          } else if (errorMessage.includes("script")) {
+            throw new Error(
+              "Script validation failed - the transaction was rejected by smart contracts"
+            );
+          } else if (errorMessage.includes("reference")) {
+            throw new Error("Reference script not found or invalid");
+          } else if (errorMessage.includes("mint")) {
+            throw new Error(
+              "Minting validation failed - token creation was rejected"
+            );
+          } else if (errorMessage.includes("utxo")) {
+            throw new Error(
+              "UTxO validation failed - some inputs may have been spent"
+            );
+          } else {
+            throw new Error(`Transaction failed: ${submitError.message}`);
+          }
+        } else {
+          throw new Error("Transaction submission failed with unknown error");
+        }
+      }
+
+      console.log("🎉 Registration completed successfully!");
       setSuccess({
         txHash,
-        votePolicyId,
-        voteNftAssetName,
+        voteScriptHash,
+        voteNftAssetName: `0001${voteScriptHash.slice(0, 56)}`, // Construct NFT name
       });
       setRegistrationState("idle");
     } catch (err: any) {
-      console.error("❌ Registration error:", err);
-      setError(err instanceof Error ? err.message : "Failed to register");
+      console.error("❌ Complete registration error:", err);
+      console.error("Error type:", typeof err);
+      console.error("Error constructor:", err?.constructor?.name);
+
+      let userFriendlyMessage = "Failed to register";
+
+      if (err instanceof Error) {
+        userFriendlyMessage = err.message;
+      } else if (typeof err === "string") {
+        userFriendlyMessage = err;
+      } else if (err?.message) {
+        userFriendlyMessage = err.message;
+      }
+
+      setError(userFriendlyMessage);
       setRegistrationState("idle");
     }
   };

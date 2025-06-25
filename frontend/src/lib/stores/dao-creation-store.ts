@@ -30,6 +30,14 @@ export interface TreasuryFunding {
   }>;
 }
 
+export interface CreatedDAO {
+  policyId: string;
+  assetName: string;
+  address: string;
+  metadata: any;
+  creationTx: string;
+}
+
 interface DAOCreationState {
   // Current step (0-indexed)
   currentStep: number;
@@ -43,8 +51,10 @@ interface DAOCreationState {
   daoTxHash: string | null;
   daoPolicyId: string | null;
   daoAssetName: string | null;
+  deployedDAO: CreatedDAO | null;
 
   // Actions
+  setDeployedDAO: (dao: CreatedDAO | null) => void;
   setCurrentStep: (step: number) => void;
   setGovernanceToken: (token: GovernanceTokenInfo | null) => void;
   setDAOConfig: (config: DAOConfig) => void;
@@ -69,6 +79,7 @@ const initialState = {
   daoTxHash: null,
   daoPolicyId: null,
   daoAssetName: null,
+  deployedDAO: null,
 };
 
 export const useDAOCreationStore = create<DAOCreationState>()(
@@ -91,6 +102,9 @@ export const useDAOCreationStore = create<DAOCreationState>()(
           daoAssetName: assetName,
         }),
 
+      // Fixed: Proper implementation
+      setDeployedDAO: (dao) => set({ deployedDAO: dao }),
+
       canProceedToStep: (step) => {
         const state = get();
         switch (step) {
@@ -101,7 +115,7 @@ export const useDAOCreationStore = create<DAOCreationState>()(
           case 2:
             return state.governanceToken !== null && state.daoConfig !== null; // Need both for step 3
           case 3:
-            return state.daoTxHash !== null; // Need deployed DAO for step 4
+            return state.daoTxHash !== null || state.deployedDAO !== null; // Need deployed DAO for step 4
           default:
             return false;
         }
@@ -109,7 +123,7 @@ export const useDAOCreationStore = create<DAOCreationState>()(
 
       calculateCurrentStep: () => {
         const state = get();
-        if (state.daoTxHash) return 3; // Deploy completed, go to treasury
+        if (state.daoTxHash || state.deployedDAO) return 3; // Deploy completed, go to treasury
         if (state.daoConfig) return 2; // Config completed, go to deploy
         if (state.governanceToken) return 1; // Token completed, go to config
         return 0; // Start from beginning
@@ -129,6 +143,7 @@ export const useDAOCreationStore = create<DAOCreationState>()(
         daoTxHash: state.daoTxHash,
         daoPolicyId: state.daoPolicyId,
         daoAssetName: state.daoAssetName,
+        deployedDAO: state.deployedDAO, // Added to persistence
       }),
     }
   )
