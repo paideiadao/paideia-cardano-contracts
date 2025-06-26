@@ -8,6 +8,7 @@ import {
   getCurrentSlot,
 } from "@/lib/server/helpers/script-helpers";
 import { DAOConfig } from "../initialize/route";
+import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";
 
 interface DeployedScript {
   name: string;
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
     // Find the seed UTXO
-    const userUtxos = await blazeMaestroProvider.getUnspentOutputs(sendAddress);
+    const userUtxos = await getCachedUtxos(sendAddress);
     const seedUtxo = userUtxos.find(
       (utxo) =>
         utxo.input().transactionId() === daoParams.seedUtxo.txHash &&

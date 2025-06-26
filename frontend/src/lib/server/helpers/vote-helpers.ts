@@ -5,6 +5,7 @@ import plutusJson from "@/lib/scripts/plutus.json";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { countGovernanceTokens, fetchDAOInfo } from "./dao-helpers";
 import { addressFromScript, createParameterizedScript } from "./script-helpers";
+import { getCachedUtxos, SCRIPT_TTL, WALLET_TTL } from "./utxo-cache";
 
 export async function getVotePolicyId(
   daoPolicyId: string,
@@ -132,7 +133,7 @@ export async function findUserVoteUtxo(
   daoKey: string
 ) {
   const userAddress = Core.addressFromBech32(walletAddress);
-  const userUtxos = await blazeMaestroProvider.getUnspentOutputs(userAddress);
+  const userUtxos = await getCachedUtxos(userAddress, WALLET_TTL);
 
   // Collect ALL Vote NFTs the user has
   const userVoteNfts: Array<{ assetName: string; uniqueId: string }> = [];
@@ -251,9 +252,7 @@ export async function checkVoteUtxo(
     const voteScriptAddress = addressFromScript(voteScript);
 
     // Get all vote UTXOs
-    const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
-      voteScriptAddress
-    );
+    const voteUtxos = await getCachedUtxos(voteScriptAddress, SCRIPT_TTL);
 
     // Look for UTXO with reference NFT matching our identifier
     const referenceAssetName = "0000" + uniqueIdentifier;

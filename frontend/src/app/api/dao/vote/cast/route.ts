@@ -21,9 +21,6 @@ import {
   ProposalRedeemer,
   VoteRedeemer,
 } from "@/lib/scripts/contracts-compact";
-import { REFERENCE_SCRIPTS } from "@/lib/scripts/reference-scripts";
-import { maestroProvider } from "@/lib/server/maestro";
-import { TransactionId, TransactionInput } from "@blaze-cardano/core";
 
 interface CastVoteRequest {
   daoPolicyId: string;
@@ -396,7 +393,7 @@ async function buildVoteTransaction(
 
   const currentSlot = getCurrentSlot();
   const validityStart = Core.Slot(Number(currentSlot));
-  const validityEnd = Core.Slot(Number(currentSlot) + 3600);
+  const validityEnd = Core.Slot(Number(currentSlot) + 600);
 
   // Calculate vote output value
   const voteInputValue = voteUtxo.output().amount();

@@ -6,7 +6,6 @@ import {
   findDeployedScriptUtxoViaMaestro,
   FullDAODatum,
   getVoteScriptHashFromDAO,
-  parseDAODatum,
 } from "@/lib/server/helpers/dao-helpers";
 import {
   findUserVoteUtxo,
@@ -17,7 +16,6 @@ import {
   createParameterizedScript,
   getCurrentSlot,
   getScriptPolicyId,
-  timestampToSlot,
 } from "@/lib/server/helpers/script-helpers";
 import {
   AssetId,
@@ -32,7 +30,6 @@ import {
   validateActionTiming,
 } from "./_helpers/validators";
 import { findSuitableSeedUtxoAvoidingVoteNft } from "@/lib/server/helpers/utxo-helpers";
-import { REFERENCE_SCRIPTS } from "@/lib/scripts/reference-scripts";
 
 interface ProposalAsset {
   unit: string;

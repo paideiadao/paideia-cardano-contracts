@@ -10,12 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Loader2,
   ExternalLink,
-  Users,
-  Clock,
-  TrendingUp,
   Copy,
   Vote,
-  Wallet,
   AlertTriangle,
   CheckCircle,
 } from "lucide-react";
@@ -37,6 +33,32 @@ export default function ViewDAOPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckingRegistration, setIsCheckingRegistration] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("overview");
+
+  // Generate unique key for this DAO
+  const daoKey =
+    policyId && assetName ? `dao-tab-${policyId}-${assetName}` : null;
+
+  // Load saved tab from localStorage on component mount
+  useEffect(() => {
+    if (daoKey && typeof window !== "undefined") {
+      const savedTab = localStorage.getItem(daoKey);
+      if (
+        savedTab &&
+        ["overview", "proposals", "treasury"].includes(savedTab)
+      ) {
+        setActiveTab(savedTab);
+      }
+    }
+  }, [daoKey]);
+
+  // Save tab to localStorage when it changes
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    if (daoKey && typeof window !== "undefined") {
+      localStorage.setItem(daoKey, value);
+    }
+  };
 
   useEffect(() => {
     if (policyId && assetName) {
@@ -168,43 +190,32 @@ export default function ViewDAOPage() {
     }
 
     return (
-      <div>
-        <div className="flex flex-row gap-2 justify-end">
-          <Link
-            href={`/dao/unregister?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
-          >
-            <Button variant="outline">Unregister Tokens</Button>
-          </Link>
-          <Link
-            href={`/dao/create-proposal?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
-          >
-            <Button>Create Proposal</Button>
-          </Link>
-        </div>
+      <div className="flex items-center justify-end gap-2">
         {registrationStatus?.lockedGovernanceTokens && (
-          <div className="p-3 mt-3 bg-green-50 dark:bg-green-950/30 rounded border">
-            <div className="flex items-center gap-2 mb-1">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium text-green-800 dark:text-green-200">
-                Registered to Vote
-              </span>
-            </div>
-            <p className="text-sm text-green-700 dark:text-green-300">
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <span className="text-green-700 dark:text-green-300">
+              Registered:{" "}
               {registrationStatus.lockedGovernanceTokens.toLocaleString()}{" "}
-              governance tokens locked
-            </p>
-
+              tokens locked
+            </span>
             {!registrationStatus.voteUtxoExists && (
-              <Alert variant="destructive" className="mt-2">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  Warning: Vote NFT found but vote UTXO is missing. Your
-                  registration may be invalid.
-                </AlertDescription>
-              </Alert>
+              <AlertTriangle className="h-4 w-4 text-destructive" />
             )}
           </div>
         )}
+        <Link
+          href={`/dao/unregister?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+        >
+          <Button variant="outline" size="sm">
+            Unregister
+          </Button>
+        </Link>
+        <Link
+          href={`/dao/create-proposal?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+        >
+          <Button size="sm">Create Proposal</Button>
+        </Link>
       </div>
     );
   };
@@ -232,77 +243,32 @@ export default function ViewDAOPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">{daoInfo.name}</h1>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() =>
-                    window.open(
-                      getExplorerUrl(`/transaction/${daoInfo.utxoRef.txHash}`),
-                      "_blank"
-                    )
-                  }
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div>{renderActionButtons()}</div>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-3xl font-bold">{daoInfo.name}</h1>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  getExplorerUrl(`/transaction/${daoInfo.utxoRef.txHash}`),
+                  "_blank"
+                )
+              }
+            >
+              <ExternalLink className="h-4 w-4" />
+            </Button>
           </div>
-        </CardHeader>
-      </Card>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium">Active Proposals</span>
-            </div>
-            <p className="text-2xl font-bold">
-              {daoInfo.stats.activeProposals}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium">Total Proposals</span>
-            </div>
-            <p className="text-2xl font-bold">{daoInfo.stats.totalProposals}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-purple-600" />
-              <span className="text-sm font-medium">Treasury</span>
-            </div>
-            <p className="text-2xl font-bold">
-              ₳{daoInfo.treasury.totalValueAda}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-orange-600" />
-              <span className="text-sm font-medium">Quorum</span>
-            </div>
-            <p className="text-2xl font-bold">
-              {daoInfo.quorum.toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
+        </div>
+        <div>{renderActionButtons()}</div>
       </div>
 
-      <Tabs defaultValue="overview" className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="space-y-6"
+      >
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="proposals">Proposals</TabsTrigger>

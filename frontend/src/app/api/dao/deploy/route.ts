@@ -11,6 +11,7 @@ import {
   addressFromScript,
   getScriptPolicyId,
 } from "@/lib/server/helpers/script-helpers";
+import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";
 
 interface DeployDAORequest {
   governanceToken: GovernanceTokenInfo;
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
     // Get UTXOs from wallet
-    const utxos = await blazeMaestroProvider.getUnspentOutputs(sendAddress);
+    const utxos = await getCachedUtxos(sendAddress);
 
     if (!utxos?.length) {
       throw new Error(

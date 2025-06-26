@@ -8,10 +8,11 @@ import {
 } from "@/lib/server/helpers/script-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 import {
-  getProposalUtxo,
   parseProposalDatum,
+  parseRawProposalDatum,
 } from "@/lib/server/helpers/proposal-helpers";
 import { getVotePolicyId } from "@/lib/server/helpers/vote-helpers";
+import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";
 
 interface EvaluateProposalRequest {
   daoPolicyId: string;
@@ -43,66 +44,75 @@ export async function POST(request: NextRequest) {
     const wallet = new ColdWallet(sendAddress, 0, blazeMaestroProvider);
     const blaze = await Blaze.from(blazeMaestroProvider, wallet);
 
-    // Fetch DAO info and proposal
+    // Fetch DAO info
     const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
-    const proposalUtxo = await getProposalUtxo(
-      proposalPolicyId,
-      proposalAssetName,
-      daoPolicyId,
-      daoKey
+
+    // Find the specific proposal UTXO using the working batch logic
+    const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
+    const proposalScript = createParameterizedScript(
+      "proposal.proposal.spend",
+      [daoPolicyId, daoKey, votePolicyId]
     );
+    const proposalScriptAddress = addressFromScript(proposalScript);
+    const proposalUtxos = await getCachedUtxos(proposalScriptAddress);
 
-    if (!proposalUtxo) {
-      throw new Error("Proposal UTXO not found");
+    // Find the specific proposal UTXO
+    let proposalUtxo: Core.TransactionUnspentOutput | null = null;
+    let currentProposal: any = null;
+    let newStatus: any = null;
+
+    for (const utxo of proposalUtxos) {
+      const { policyId, assetName } = getProposalTokenInfo(utxo);
+      if (policyId === proposalPolicyId && assetName === proposalAssetName) {
+        const datum = utxo.output().datum()?.asInlineData();
+        if (datum) {
+          const rawProposal = parseRawProposalDatum(datum);
+          if (rawProposal) {
+            const statusConstr = rawProposal.status.asConstrPlutusData();
+            const isActive = statusConstr?.getAlternative() === 0n;
+
+            const now = Date.now();
+            if (isActive && now > rawProposal.end_time) {
+              currentProposal = parseProposalDatum(datum, daoInfo);
+              if (currentProposal) {
+                proposalUtxo = utxo;
+
+                const totalVotes = currentProposal.tally.reduce(
+                  (sum: number, votes: number) => sum + votes,
+                  0
+                );
+                newStatus = calculateProposalOutcome(
+                  currentProposal.tally,
+                  totalVotes,
+                  daoInfo.quorum,
+                  daoInfo.threshold
+                );
+                break;
+              }
+            }
+          }
+        }
+      }
     }
 
-    // Parse current proposal state
-    const currentDatum = proposalUtxo.output().datum()?.asInlineData();
-    if (!currentDatum) {
-      throw new Error("Proposal UTXO missing datum");
+    if (!proposalUtxo || !currentProposal || !newStatus) {
+      throw new Error("Proposal UTXO not found or not ready for evaluation");
     }
-
-    const currentProposal = parseProposalDatum(currentDatum, daoInfo);
-    if (!currentProposal) {
-      throw new Error("Failed to parse proposal datum");
-    }
-
-    // Validate proposal can be evaluated
-    if (currentProposal.status !== "Active") {
-      throw new Error(
-        `Proposal already evaluated with status: ${currentProposal.status}`
-      );
-    }
-
-    const now = Date.now();
-    if (now <= currentProposal.endTime) {
-      throw new Error(
-        `Proposal voting is still active until ${new Date(
-          currentProposal.endTime
-        ).toISOString()}`
-      );
-    }
-
-    // Calculate final status
-    const totalVotes = currentProposal.tally.reduce(
-      (sum, votes) => sum + votes,
-      0
-    );
-    const newStatus = calculateProposalOutcome(
-      currentProposal.tally,
-      totalVotes,
-      daoInfo.quorum,
-      daoInfo.threshold
-    );
 
     console.log("📊 EVALUATION CALCULATION:");
-    console.log("Total votes:", totalVotes);
+    console.log(
+      "Total votes:",
+      currentProposal.tally.reduce(
+        (sum: number, votes: number) => sum + votes,
+        0
+      )
+    );
     console.log("Required quorum:", daoInfo.quorum);
     console.log("Required threshold:", daoInfo.threshold);
     console.log("Vote tally:", currentProposal.tally);
     console.log("Calculated status:", newStatus);
 
-    // Build evaluation transaction
+    // Build evaluation transaction using the working batch logic
     const tx = await buildEvaluationTransaction(blaze, {
       proposalUtxo,
       currentProposal,
@@ -115,7 +125,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       unsignedTx: tx.toCbor(),
       newStatus,
-      totalVotes,
+      totalVotes: currentProposal.tally.reduce(
+        (sum: number, votes: number) => sum + votes,
+        0
+      ),
       winningOption: newStatus.type === "Passed" ? newStatus.option : null,
     });
   } catch (error) {
@@ -133,23 +146,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function getProposalTokenInfo(utxo: Core.TransactionUnspentOutput): {
+  policyId: string;
+  assetName: string;
+} {
+  const assets = utxo.output().amount().toCore().assets;
+  if (!assets) return { policyId: "", assetName: "" };
+
+  for (const [assetId, amount] of assets) {
+    if (amount === 1n) {
+      const policyId = Core.AssetId.getPolicyId(assetId);
+      const assetName = Core.AssetId.getAssetName(assetId);
+      return { policyId, assetName };
+    }
+  }
+
+  return { policyId: "", assetName: "" };
+}
+
 function calculateProposalOutcome(
   tally: number[],
   totalVotes: number,
   requiredQuorum: number,
   requiredThreshold: number
 ): { type: "FailedQuorum" | "FailedThreshold" | "Passed"; option?: number } {
-  // Check quorum first
   if (totalVotes < requiredQuorum) {
     return { type: "FailedQuorum" };
   }
 
-  // Find option with most votes
   const maxVotes = Math.max(...tally);
   const winningIndex = tally.findIndex((votes) => votes === maxVotes);
   const winningPercentage = (maxVotes / totalVotes) * 100;
 
-  // Check if winning option meets threshold
   if (winningPercentage >= requiredThreshold) {
     return { type: "Passed", option: winningIndex };
   }
@@ -177,7 +205,7 @@ async function buildEvaluationTransaction(
     daoInfo,
   } = params;
 
-  // Create scripts
+  // Create scripts - using the working batch logic
   const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
   const proposalScript = createParameterizedScript("proposal.proposal.spend", [
     daoPolicyId,
@@ -185,10 +213,10 @@ async function buildEvaluationTransaction(
     votePolicyId,
   ]);
 
-  // Get DAO UTXO for reference
+  // Get DAO UTXO for reference - using cached UTXOs like the batch version
   const daoScript = createParameterizedScript("dao.dao.spend", []);
   const daoAddress = addressFromScript(daoScript);
-  const daoUtxos = await blaze.provider.getUnspentOutputs(daoAddress);
+  const daoUtxos = await getCachedUtxos(daoAddress);
 
   const daoAssetId = Core.AssetId.fromParts(
     Core.PolicyId(daoPolicyId),
@@ -228,6 +256,7 @@ async function buildEvaluationTransaction(
   console.log("New status:", newStatus);
   console.log("Using redeemer:", "EvaluateProposal (Constructor 3)");
 
+  // Use the exact same transaction building pattern as the working batch version
   return blaze
     .newTransaction()
     .addInput(proposalUtxo, evaluateRedeemer)
@@ -267,23 +296,24 @@ function createUpdatedProposalDatum(
       const passedFields = new Core.PlutusList();
       passedFields.add(Core.PlutusData.newInteger(BigInt(newStatus.option!)));
       statusDatum = Core.PlutusData.newConstrPlutusData(
-        new Core.ConstrPlutusData(3n, passedFields) // Passed(Int) = Constructor 3
+        new Core.ConstrPlutusData(3n, passedFields) // Passed = Constructor 3
       );
       break;
     default:
-      throw new Error(`Unknown status type: ${newStatus.type}`);
+      throw new Error(`Invalid status type: ${newStatus.type}`);
   }
 
-  // Rebuild datum with new status
-  const updatedFields = new Core.PlutusList();
-  updatedFields.add(originalFields.get(0)); // name
-  updatedFields.add(originalFields.get(1)); // description
-  updatedFields.add(originalFields.get(2)); // tally
-  updatedFields.add(originalFields.get(3)); // end_time
-  updatedFields.add(statusDatum); // status - updated
-  updatedFields.add(originalFields.get(5)); // identifier
+  // Use the exact same datum rebuilding logic as the working batch version
+  const newFields = new Core.PlutusList();
+  for (let i = 0; i < originalFields.getLength(); i++) {
+    if (i === 4) {
+      newFields.add(statusDatum);
+    } else {
+      newFields.add(originalFields.get(i));
+    }
+  }
 
   return Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(constr.getAlternative(), updatedFields)
+    new Core.ConstrPlutusData(0n, newFields)
   );
 }

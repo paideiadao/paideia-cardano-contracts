@@ -1,0 +1,100 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Dao {
+  policyId      String   @id
+  name          String
+  governanceToken String
+  threshold     Int
+  minProposalTime Int
+  maxProposalTime Int
+  quorum        Int
+  minGovProposalCreate Int
+  whitelistedProposals Json
+  whitelistedActions Json
+  deploymentTx  String
+  address       String
+  network       String
+  utxoTxHash    String
+  utxoIndex     Int
+  utxoAddress   String
+  utxoValue     String   // Changed from Json to String (CBOR hex)
+  utxoDatum     String?
+  createdAt     DateTime @default(now())
+ 
+  proposals     Proposal[]
+  scripts       DeployedScript[]
+ 
+  @@index([network])
+  @@index([name])
+  @@map("daos")
+}
+
+model DeployedScript {
+  scriptHash    String   @id
+  name          String?
+  txHash        String
+  outputIndex   Int
+  network       String
+  size          Int?
+  parameters    Json?
+  deployedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Foreign key to DAO
+  daoPolicyId   String?
+  dao           Dao?     @relation(fields: [daoPolicyId], references: [policyId])
+  
+  @@index([name])
+  @@index([network])
+  @@index([txHash, outputIndex])
+  @@index([daoPolicyId])
+  @@map("deployed_scripts")
+}
+
+model Proposal {
+  id            String   @id
+  daoId         String
+  name          String
+  description   String
+  endTime       DateTime
+  status        String   // Active, FailedThreshold, FailedQuorum, Passed
+  winningOption Int?
+  tally         Json     // vote counts array
+  deploymentTx  String
+  network       String
+  createdAt     DateTime @default(now())
+  
+  dao           Dao      @relation(fields: [daoId], references: [policyId])
+  
+  @@index([daoId])
+  @@index([status])
+  @@index([endTime])
+  @@map("proposals")
+}
+
+model UtxoCache {
+  id          String   @id @default(cuid())
+  cacheKey    String   @unique
+  address     String
+  utxos       Json     // Array of serialized UTXO data
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  
+  @@index([cacheKey])
+  @@index([expiresAt])
+  @@index([address])
+  @@map("utxo_cache")
+}

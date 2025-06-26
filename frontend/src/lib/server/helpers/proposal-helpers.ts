@@ -86,6 +86,7 @@ export interface OutputReference {
 
 export type ProposalStatus =
   | "Active"
+  | "ReadyForEvaluation"
   | "FailedThreshold"
   | "FailedQuorum"
   | "Passed";
@@ -154,23 +155,9 @@ export function parseProposalDatum(
       }
     }
 
-    // Check if Active proposal has expired and determine final status
-    if (status === "Active" && endTime <= Date.now() && daoInfo) {
-      const totalVotes = tally.reduce((sum, votes) => sum + votes, 0);
-
-      if (totalVotes < daoInfo.quorum) {
-        status = "FailedQuorum";
-      } else {
-        const maxVotes = Math.max(...tally);
-        const winningPercentage = (maxVotes / totalVotes) * 100;
-
-        if (winningPercentage >= daoInfo.threshold) {
-          status = "Passed";
-          winningOption = tally.findIndex((votes) => votes === maxVotes);
-        } else {
-          status = "FailedThreshold";
-        }
-      }
+    // If Active proposal has expired, mark as ready for evaluation
+    if (status === "Active" && endTime <= Date.now()) {
+      status = "ReadyForEvaluation";
     }
 
     const identifierConstr = fields.get(5).asConstrPlutusData();
@@ -180,7 +167,6 @@ export function parseProposalDatum(
       if (idFields.getLength() >= 2) {
         const txHashBytes = idFields.get(0).asBoundedBytes();
         const outputIndex = Number(idFields.get(1).asInteger() ?? 0n);
-
         if (txHashBytes) {
           identifier = {
             txHash: Core.toHex(txHashBytes),
