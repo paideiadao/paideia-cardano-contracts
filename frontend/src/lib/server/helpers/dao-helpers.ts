@@ -4,10 +4,10 @@ import {
   createParameterizedScript,
   extractInlineDatum,
   getNetworkId,
-  getScriptPolicyId,
   getUTXOsWithFallback,
 } from "./script-helpers";
 import { findUTXOWithAsset } from "./utxo-helpers";
+import { prisma } from "@/lib/prisma";
 
 export interface FullDAODatum {
   name: string;
@@ -32,22 +32,6 @@ export interface DAOScriptReferences {
   treasury: DeployedScriptReference;
   proposal: DeployedScriptReference;
   actionSendFunds: DeployedScriptReference;
-}
-
-/**
- * Extract script references from DAO NFT metadata
- * The DAO NFT should contain metadata with deployed script info
- */
-export async function getDAOScriptReferences(
-  daoUtxo: Core.TransactionUnspentOutput
-): Promise<DAOScriptReferences> {
-  // The DAO NFT metadata contains the script deployment info
-  // We need to extract this from the NFT metadata
-  // For now, let's scan for deployed scripts based on the DAO parameters
-
-  throw new Error(
-    "Not implemented - need to extract from DAO NFT metadata or scan deployed scripts"
-  );
 }
 
 /**
@@ -101,6 +85,18 @@ export async function findDeployedScriptUtxoViaMaestro(
   outputIndex: number;
   scriptHash: string;
 } | null> {
+  const cached = await prisma.deployedScript.findUnique({
+    where: { scriptHash },
+  });
+
+  if (cached) {
+    return {
+      txHash: cached.txHash,
+      outputIndex: cached.outputIndex,
+      scriptHash: cached.scriptHash,
+    };
+  }
+
   try {
     const maestroApiKey = process.env.MAESTRO_API_KEY!;
     const network = process.env.NETWORK!;
@@ -127,11 +123,24 @@ export async function findDeployedScriptUtxoViaMaestro(
     );
 
     if (deploymentUtxo) {
-      return {
+      const result = {
         txHash: deploymentUtxo.tx_hash,
         outputIndex: deploymentUtxo.index,
         scriptHash,
       };
+
+      // Cache the result
+      await prisma.deployedScript.create({
+        data: {
+          scriptHash,
+          txHash: result.txHash,
+          outputIndex: result.outputIndex,
+          network: process.env.NETWORK!,
+          // Add other fields as needed
+        },
+      });
+
+      return result;
     }
 
     return null;
@@ -139,46 +148,6 @@ export async function findDeployedScriptUtxoViaMaestro(
     console.error("Maestro search error:", error);
     throw error;
   }
-}
-
-/**
- * Get all script references needed for a specific DAO operation
- */
-export async function getRequiredScriptReferences(
-  daoPolicyId: string,
-  daoKey: string,
-  operation: "vote" | "proposal" | "treasury" | "action"
-): Promise<{
-  voteScript?: DeployedScriptReference;
-  proposalScript?: DeployedScriptReference;
-  treasuryScript?: DeployedScriptReference;
-  actionScript?: DeployedScriptReference;
-}> {
-  const results: any = {};
-
-  if (operation === "vote" || operation === "proposal") {
-    const voteScriptHash = getVoteScriptHashFromDAO(daoPolicyId, daoKey);
-    results.voteScript = await findDeployedScriptUtxoViaMaestro(voteScriptHash);
-  }
-
-  if (operation === "proposal") {
-    // Calculate proposal script hash
-    const votePolicyId = getScriptPolicyId("vote.vote.mint", [
-      daoPolicyId,
-      daoKey,
-    ]);
-    const proposalScript = createParameterizedScript(
-      "proposal.proposal.spend",
-      [daoPolicyId, daoKey, votePolicyId]
-    );
-    results.proposalScript = await findDeployedScriptUtxoViaMaestro(
-      proposalScript.hash()
-    );
-  }
-
-  // Add treasury and action script lookups as needed
-
-  return results;
 }
 
 export async function getDaoUtxo(
@@ -193,6 +162,33 @@ export async function getDaoUtxo(
 }
 
 export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
+  const cachedDao = await prisma.dao.findUnique({
+    where: { policyId: daoPolicyId },
+    include: { scripts: true },
+  });
+
+  if (cachedDao) {
+    // Reconstruct the full UTXO
+    const utxo = reconstructUtxoFromDb(cachedDao);
+
+    return {
+      name: cachedDao.name,
+      governance_token: cachedDao.governanceToken,
+      threshold: cachedDao.threshold,
+      min_proposal_time: cachedDao.minProposalTime,
+      max_proposal_time: cachedDao.maxProposalTime,
+      quorum: cachedDao.quorum,
+      min_gov_proposal_create: cachedDao.minGovProposalCreate,
+      whitelisted_proposals: cachedDao.whitelistedProposals as string[],
+      whitelisted_actions: cachedDao.whitelistedActions as string[],
+      policyId: daoPolicyId,
+      key: daoKey,
+      utxo,
+      scripts: cachedDao.scripts,
+    };
+  }
+
+  // Fallback to Maestro
   const daoUtxo = await getDaoUtxo(daoPolicyId, daoKey);
   if (!daoUtxo) {
     throw new Error(
@@ -201,13 +197,89 @@ export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
   }
 
   const datum = extractInlineDatum(daoUtxo);
+  const parsedDao = parseDAODatum(datum);
+
+  // Save complete UTXO data
+  await prisma.dao.upsert({
+    where: { policyId: daoPolicyId },
+    update: {
+      // Update fields if needed when DAO data changes
+      name: parsedDao.name,
+      governanceToken: parsedDao.governance_token,
+      threshold: parsedDao.threshold,
+      minProposalTime: parsedDao.min_proposal_time,
+      maxProposalTime: parsedDao.max_proposal_time,
+      quorum: parsedDao.quorum,
+      minGovProposalCreate: parsedDao.min_gov_proposal_create,
+      whitelistedProposals: parsedDao.whitelisted_proposals,
+      whitelistedActions: parsedDao.whitelisted_actions,
+      utxoTxHash: daoUtxo.input().transactionId(),
+      utxoIndex: Number(daoUtxo.input().index()),
+      utxoAddress: daoUtxo.output().address().toBech32(),
+      utxoValue: serializeValue(daoUtxo.output().amount()),
+      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor(),
+    },
+    create: {
+      policyId: daoPolicyId,
+      name: parsedDao.name,
+      governanceToken: parsedDao.governance_token,
+      threshold: parsedDao.threshold,
+      minProposalTime: parsedDao.min_proposal_time,
+      maxProposalTime: parsedDao.max_proposal_time,
+      quorum: parsedDao.quorum,
+      minGovProposalCreate: parsedDao.min_gov_proposal_create,
+      whitelistedProposals: parsedDao.whitelisted_proposals,
+      whitelistedActions: parsedDao.whitelisted_actions,
+      deploymentTx: daoUtxo.input().transactionId(),
+      address: addressFromScript(
+        createParameterizedScript("dao.dao.spend", [])
+      ).toBech32(),
+      network: process.env.NETWORK!,
+      utxoTxHash: daoUtxo.input().transactionId(),
+      utxoIndex: Number(daoUtxo.input().index()),
+      utxoAddress: daoUtxo.output().address().toBech32(),
+      utxoValue: serializeValue(daoUtxo.output().amount()),
+      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor(),
+    },
+  });
 
   return {
-    ...parseDAODatum(datum),
+    ...parsedDao,
     policyId: daoPolicyId,
     key: daoKey,
-    utxo: daoUtxo, // Include the UTXO for callers that need it
+    utxo: daoUtxo,
+    scripts: [],
   };
+}
+
+function reconstructUtxoFromDb(cachedDao: any): Core.TransactionUnspentOutput {
+  const input = new Core.TransactionInput(
+    Core.TransactionId(cachedDao.utxoTxHash),
+    BigInt(cachedDao.utxoIndex)
+  );
+
+  const address = Core.addressFromBech32(cachedDao.utxoAddress);
+  const value = deserializeValue(cachedDao.utxoValue);
+
+  const output = new Core.TransactionOutput(address, value);
+
+  // Set datum if it exists
+  if (cachedDao.utxoDatum) {
+    const datum = Core.Datum.newInlineData(
+      Core.PlutusData.fromCbor(Core.HexBlob(cachedDao.utxoDatum))
+    );
+    output.setDatum(datum);
+  }
+
+  return new Core.TransactionUnspentOutput(input, output);
+}
+
+function serializeValue(value: Core.Value): string {
+  return value.toCbor(); // Store as hex string
+}
+
+function deserializeValue(serialized: string): Core.Value {
+  return Core.Value.fromCbor(Core.HexBlob(serialized));
 }
 
 export function parseDAODatum(datum: Core.PlutusData): FullDAODatum {

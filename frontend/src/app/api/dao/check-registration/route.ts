@@ -3,6 +3,7 @@ import { Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { getScriptPolicyId } from "@/lib/server/helpers/script-helpers";
 import { checkVoteUtxo } from "@/lib/server/helpers/vote-helpers";
+import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";
 
 interface CheckRegistrationRequest {
   daoPolicyId: string;
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     // Check user's wallet for vote NFT
     const userAddress = Core.addressFromBech32(walletAddress);
-    const userUtxos = await blazeMaestroProvider.getUnspentOutputs(userAddress);
+    const userUtxos = await getCachedUtxos(userAddress);
 
     let voteNftAssetName: string | undefined;
     let uniqueIdentifier: string | undefined;

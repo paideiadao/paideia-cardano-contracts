@@ -8,7 +8,10 @@ import {
   createParameterizedScript,
   getScriptPolicyId,
 } from "@/lib/server/helpers/script-helpers";
-import { parseProposalDatum } from "@/lib/server/helpers/proposal-helpers";
+import {
+  parseProposalDatum,
+  ProposalStatus,
+} from "@/lib/server/helpers/proposal-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 
 export interface ProposalInfo {
@@ -18,7 +21,7 @@ export interface ProposalInfo {
   description: string;
   tally: number[];
   endTime: number;
-  status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed";
+  status: ProposalStatus;
   winningOption?: number;
   identifier: {
     txHash: string;

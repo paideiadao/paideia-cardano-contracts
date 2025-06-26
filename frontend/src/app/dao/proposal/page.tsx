@@ -51,11 +51,23 @@ export default function ProposalPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        await Promise.all([fetchProposal(), fetchDAOInfo()]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load data");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     if (proposalPolicyId && proposalAssetName && daoPolicyId && daoKey) {
-      Promise.all([fetchProposal(), fetchDAOInfo()]);
+      loadData();
     } else {
-      setError("Missing proposal parameters");
-      setIsLoading(false);
+      setIsLoading(false); // Stop loading if params are missing
     }
   }, [
     proposalPolicyId,
@@ -257,6 +269,18 @@ export default function ProposalPage() {
           <Loader2 className="h-8 w-8 animate-spin" />
           <span className="ml-2">Loading proposal...</span>
         </div>
+      </div>
+    );
+  }
+
+  if (!proposalPolicyId || !proposalAssetName || !daoPolicyId || !daoKey) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <Alert variant="destructive">
+          <AlertDescription>
+            Missing required proposal parameters in URL
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -523,7 +547,7 @@ export default function ProposalPage() {
 
               {/* Your Voting Status - Prominent Section */}
               {connected && proposal.userVoteInfo && (
-                <div className="space-y-3 pt-4 border-t bg-blue-50/50 dark:bg-blue-950/20 rounded-lg p-4">
+                <div className="space-y-3 pt-4 border  rounded-lg p-4">
                   <h4 className="font-semibold text-sm flex items-center gap-2">
                     <User className="h-4 w-4" />
                     Your Voting Status

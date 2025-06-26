@@ -6,6 +6,7 @@ import {
   getScriptPolicyId,
   addressFromScript,
 } from "@/lib/server/helpers/script-helpers";
+import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";
 
 export interface DAOConfig {
   name: string;
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userAddress = Core.addressFromBech32(walletAddress);
-    const userUtxos = await blazeMaestroProvider.getUnspentOutputs(userAddress);
+    const userUtxos = await getCachedUtxos(userAddress);
 
     if (!userUtxos?.length) {
       throw new Error("No UTXOs found in wallet");
