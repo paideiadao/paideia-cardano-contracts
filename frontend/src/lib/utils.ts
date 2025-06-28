@@ -66,3 +66,59 @@ export function formatAssetQuantity(quantity: string, decimals = 0): string {
   if (decimals === 0) return num.toLocaleString();
   return (num / Math.pow(10, decimals)).toLocaleString();
 }
+
+/**
+ * Format lovelace amount to ADA with proper decimal places
+ */
+export function formatADA(
+  lovelace: number | bigint,
+  decimals: number = 6
+): string {
+  const amount = typeof lovelace === "bigint" ? Number(lovelace) : lovelace;
+  const ada = amount / 1_000_000;
+
+  // For very small amounts, show more decimals
+  if (ada < 0.001 && ada > 0) {
+    return `${ada.toFixed(8)} ADA`;
+  }
+
+  // For normal amounts, use specified decimals
+  return `${ada.toFixed(decimals)} ADA`;
+}
+
+/**
+ * Format lovelace amount to ADA with smart formatting
+ */
+export function formatADACompact(lovelace: number | bigint): string {
+  const amount = typeof lovelace === "bigint" ? Number(lovelace) : lovelace;
+  const ada = amount / 1_000_000;
+
+  if (ada >= 1_000_000) {
+    return `${(ada / 1_000_000).toFixed(2)}M ADA`;
+  } else if (ada >= 1_000) {
+    return `${(ada / 1_000).toFixed(2)}K ADA`;
+  } else if (ada >= 1) {
+    return `${ada.toFixed(2)} ADA`;
+  } else if (ada > 0) {
+    return `${ada.toFixed(6)} ADA`;
+  } else {
+    return "0 ADA";
+  }
+}
+
+/**
+ * Truncate hash or address for display
+ */
+export function truncateHash(
+  hash: string,
+  startChars: number = 8,
+  endChars: number = 8
+): string {
+  if (!hash) return "";
+
+  if (hash.length <= startChars + endChars) {
+    return hash;
+  }
+
+  return `${hash.slice(0, startChars)}...${hash.slice(-endChars)}`;
+}

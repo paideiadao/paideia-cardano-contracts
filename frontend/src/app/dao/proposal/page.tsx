@@ -27,6 +27,8 @@ import { DAOInfo } from "@/app/api/dao/info/route";
 import { getExplorerUrl } from "@/lib/utils";
 import { VotingInterface } from "@/components/dao/voting-interface";
 import { ProposalEvaluation } from "@/components/dao/proposal-evaluation";
+import { ExecuteActionButton } from "@/components/dao/execute-action-button";
+import { ActionTargetsDisplay } from "@/components/dao/action-targets-display";
 
 interface LiveStatus {
   type: "FailedQuorum" | "FailedThreshold" | "Passing" | "Active";
@@ -301,6 +303,8 @@ export default function ProposalPage() {
   const isActive = proposal.status === "Active";
   const hasEnded = Date.now() > proposal.endTime;
   const liveStatus = calculateLiveStatus();
+
+  console.log(proposal);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -630,46 +634,30 @@ export default function ProposalPage() {
               <CardContent className="space-y-4">
                 {proposal.actions.map((action) => (
                   <div key={action.index} className="border rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="outline">Option {action.index}</Badge>
-                      <h3 className="font-semibold">{action.name}</h3>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">Option {action.index}</Badge>
+                        <h3 className="font-semibold">{action.name}</h3>
+                      </div>
+                      {proposal.status === "Passed" && (
+                        <ExecuteActionButton
+                          daoPolicyId={daoPolicyId}
+                          daoKey={daoKey}
+                          proposalPolicyId={proposal.policyId}
+                          proposalAssetName={proposal.assetName}
+                          actionIndex={action.index}
+                          size="sm"
+                        />
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground mb-3">
                       {action.description}
                     </p>
-                    {action.targets && action.targets?.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium">Recipients:</h4>
-                        {action.targets.map((target, idx) => (
-                          <div
-                            key={idx}
-                            className="text-sm bg-muted rounded p-2"
-                          >
-                            <p className="font-mono text-xs mb-1">
-                              {target.address}
-                            </p>
-                            <div className="flex gap-2 flex-wrap">
-                              {target.assets.map((asset, assetIdx) => (
-                                <span
-                                  key={assetIdx}
-                                  className="inline-flex items-center px-2 py-1 bg-white dark:bg-gray-800 rounded text-xs"
-                                >
-                                  {asset.unit === "lovelace"
-                                    ? `₳${(
-                                        parseInt(asset.quantity) / 1_000_000
-                                      ).toFixed(2)}`
-                                    : `${parseInt(
-                                        asset.quantity
-                                      ).toLocaleString()} ${asset.unit.slice(
-                                        0,
-                                        8
-                                      )}...`}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                    {action.targets && action.targets.length > 0 && (
+                      <ActionTargetsDisplay
+                        targets={action.targets}
+                        showDetails={false} // Just show summary on proposal page
+                      />
                     )}
                   </div>
                 ))}

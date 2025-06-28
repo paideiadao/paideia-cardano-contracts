@@ -3,7 +3,6 @@ import { Core } from "@blaze-cardano/sdk";
 import { cborToScript } from "@blaze-cardano/uplc";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { scriptConfigs } from "../deploy-scripts/route";
-import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { timestampToSlot } from "@/lib/server/helpers/script-helpers";
 
 interface MaestroUtxo {

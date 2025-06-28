@@ -1,4 +1,4 @@
-import { maestroProvider, Core } from "@/lib/server/blaze";
+import { blazeMaestroProvider, Core } from "@/lib/server/blaze";
 
 export async function GET() {
   try {
@@ -6,7 +6,7 @@ export async function GET() {
       "addr_test1qpvx0sacufuypa2k4sngk7q40zc5c4npl337uusdh64kv0uafhxhu32dys6pvn6wlw8dav6cmp4pmtv7cc3yel9uu0nq93swx9"
     );
 
-    const utxos = await maestroProvider.getUnspentOutputs(testAddress);
+    const utxos = await blazeMaestroProvider.getUnspentOutputs(testAddress);
 
     return Response.json({
       success: true,

@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Core } from "@blaze-cardano/sdk";
-import { blazeMaestroProvider } from "@/lib/server/blaze";
+import { getUserVoteStatus } from "@/lib/server/helpers/vote-helpers";
 import {
-  addressFromScript,
-  createParameterizedScript,
-  getScriptPolicyId,
-} from "@/lib/server/helpers/script-helpers";
-import {
-  findUserVoteUtxo,
-  getUserVoteStatus,
-  getVotePolicyId,
-} from "@/lib/server/helpers/vote-helpers";
-import {
+  ActionTarget,
   findProposalActions,
+  getProposalUtxo,
   parseProposalDatum,
 } from "@/lib/server/helpers/proposal-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
@@ -24,7 +15,12 @@ export interface ProposalDetails {
   description: string;
   tally: number[];
   endTime: number;
-  status: "Active" | "FailedThreshold" | "FailedQuorum" | "Passed";
+  status:
+    | "Active"
+    | "FailedThreshold"
+    | "FailedQuorum"
+    | "Passed"
+    | "ReadyForEvaluation";
   winningOption?: number;
   identifier: {
     txHash: string;
@@ -33,15 +29,9 @@ export interface ProposalDetails {
   totalVotes: number;
   actions: Array<{
     index: number;
-    name?: string;
-    description?: string;
-    targets?: Array<{
-      address: string;
-      assets: Array<{
-        unit: string;
-        quantity: string;
-      }>;
-    }>;
+    name: string;
+    description: string;
+    targets: ActionTarget[];
   }>;
   userVoteInfo?: {
     hasVoted: boolean;
@@ -71,38 +61,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get proposal UTXO
-    const votePolicyId = await getVotePolicyId(daoPolicyId, daoKey);
-    const proposalScript = createParameterizedScript(
-      "proposal.proposal.spend",
-      [daoPolicyId, daoKey, votePolicyId]
+    // Get proposal UTXO using the proper helper function
+    const proposalUtxo = await getProposalUtxo(
+      proposalPolicyId,
+      proposalAssetName,
+      daoPolicyId,
+      daoKey
     );
-    const proposalScriptAddress = addressFromScript(proposalScript);
-
-    const utxos = await blazeMaestroProvider.getUnspentOutputs(
-      proposalScriptAddress
-    );
-
-    let proposalUtxo = null;
-    for (const utxo of utxos) {
-      const value = utxo.output().amount().toCore();
-      if (value.assets) {
-        for (const [assetId, quantity] of value.assets) {
-          if (quantity === 1n) {
-            const utxoPolicyId = Core.AssetId.getPolicyId(assetId);
-            const utxoAssetName = Core.AssetId.getAssetName(assetId);
-            if (
-              utxoPolicyId === proposalPolicyId &&
-              utxoAssetName === proposalAssetName
-            ) {
-              proposalUtxo = utxo;
-              break;
-            }
-          }
-        }
-      }
-      if (proposalUtxo) break;
-    }
 
     if (!proposalUtxo) {
       return NextResponse.json(
