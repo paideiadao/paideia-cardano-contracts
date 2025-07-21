@@ -700,7 +700,11 @@ test action_send_funds_spend() {
         test_treasury_input_2(),
       ],
       reference_inputs: [test_proposal_passed_input(), test_dao_input()],
-      outputs: [test_treasury_output_3(), test_user_output()],
+      outputs: [
+        test_treasury_output_3(),
+        test_user_output(),
+        test_user_output(),
+      ],
       mint: from_asset(
         test_action_send_funds_policy_id,
         get_action_identifier(

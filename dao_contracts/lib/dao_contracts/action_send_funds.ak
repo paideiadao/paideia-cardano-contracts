@@ -3,14 +3,16 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/crypto.{blake2b_256}
 use cardano/address.{Address, Script}
-use cardano/assets.{AssetName, PolicyId}
+use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{
-  Datum, InlineDatum, Output, OutputReference, Transaction, find_input,
+  Datum, InlineDatum, Input, Output, OutputReference, Transaction, find_input,
   find_script_outputs,
 }
 use dao_contracts/dao.{get_dao_datum_from_reference}
 use dao_contracts/proposal.{get_proposal_identifier}
-use dao_contracts/utils.{after_time, find_input_by_identifier}
+use dao_contracts/utils.{
+  after_time, equal_or_more_coins, find_input_by_identifier,
+}
 
 pub type Target {
   address: Address,
@@ -167,7 +169,12 @@ pub fn spend(
       tx,
     )?,
     targets_present(datum.targets, tx.outputs)?,
-    only_targets_and_treasury_outputs(datum.treasury, tx.outputs, datum.targets)?,
+    treasury_change_accounted_for(
+      datum.treasury,
+      tx.inputs,
+      tx.outputs,
+      datum.targets,
+    )?,
     action_token_burned(action_policy_id, tx.outputs)?,
     after_time(tx, datum.activation_time)?,
   }
@@ -212,17 +219,58 @@ fn targets_present(targets: List<Target>, outputs: List<Output>) -> Bool {
       )
 }
 
-fn only_targets_and_treasury_outputs(
+fn treasury_change_accounted_for(
   treasury: Address,
+  inputs: List<Input>,
   outputs: List<Output>,
   targets: List<Target>,
 ) -> Bool {
   expect Address { payment_credential: Script(treasury_script_hash), .. } =
     treasury
-  let treasury_outputs = find_script_outputs(outputs, treasury_script_hash)
-  ( treasury_outputs |> list.length() ) + ( targets |> list.length() ) == (
-    outputs |> list.length()
-  )
+  let treasury_inputs_value =
+    inputs
+      |> list.map(fn(input: Input) { input.output })
+      |> find_script_outputs(treasury_script_hash)
+      |> list.foldl(
+          assets.zero,
+          fn(output: Output, acc: Value) { assets.merge(acc, output.value) },
+        )
+  let targets_total_value =
+    targets
+      |> list.foldl(
+          assets.zero,
+          fn(target: Target, acc: Value) {
+            assets.merge(
+              acc,
+              assets.from_lovelace(target.coins)
+                |> assets.merge(assets.from_asset_list(target.tokens)),
+            )
+          },
+        )
+  // Expected change in treasury value after sending funds to targets
+  // is the total value of targets minus the value of inputs that were sent to treasury
+  // If the expected change is zero, we can return True immediately
+  // because it means that the treasury inputs already cover the targets total value
+  // If the expected change is not zero, we need to check if there is a treasury output
+  // that has at least the expected change in value
+  // If there is no such output, the transaction is invalid
+  let expected_change =
+    assets.merge(assets.negate(targets_total_value), treasury_inputs_value)
+  if assets.is_zero(expected_change) {
+    True
+  } else {
+    // No change expected
+    // Must have treasury output with at least the expected change
+    outputs
+      |> list.any(
+          fn(output) {
+            output.address == treasury && equal_or_more_coins(
+              expected_change,
+              output.value,
+            )
+          },
+        )
+  }
 }
 
 fn action_token_burned(

@@ -1,6 +1,6 @@
 use aiken/collection/list
 use aiken/interval.{Finite, Interval, IntervalBound}
-use cardano/assets.{AssetName, PolicyId}
+use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Input, Transaction}
 
 pub fn find_input_by_identifier(
@@ -22,4 +22,8 @@ pub fn after_time(tx: Transaction, time: Int) -> Bool {
     ..
   } = tx.validity_range
   tx_time > time
+}
+
+pub fn equal_or_more_coins(new: Value, old: Value) -> Bool {
+  assets.match(new, old, >=)
 }
