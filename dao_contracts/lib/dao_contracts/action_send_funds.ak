@@ -265,8 +265,8 @@ fn treasury_change_accounted_for(
       |> list.any(
           fn(output) {
             output.address == treasury && equal_or_more_coins(
-              expected_change,
               output.value,
+              expected_change,
             )
           },
         )
