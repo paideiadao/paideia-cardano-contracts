@@ -2,7 +2,6 @@ import { applyParamsToScript, cborToScript, Core } from "@blaze-cardano/sdk";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { Type } from "@blaze-cardano/data";
 import { blazeMaestroProvider } from "../blaze";
-import { maestroProvider } from "../maestro";
 
 export function createParameterizedScript(
   validatorTitle: string,

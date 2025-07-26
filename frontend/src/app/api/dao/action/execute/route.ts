@@ -459,7 +459,7 @@ async function buildExecutionTransaction(context: {
       assets: new Map(),
     });
 
-    // Treasury outputs use NoDatum, not InlineDatum
+    // Treasury outputs use NoDatum
     const treasuryOutput = new Core.TransactionOutput(
       treasuryAddress,
       treasuryChangeValue

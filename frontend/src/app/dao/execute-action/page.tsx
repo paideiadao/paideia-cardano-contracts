@@ -168,7 +168,7 @@ export default function ExecuteActionPage() {
 
       const { unsignedTx } = await response.json();
 
-      const signedTx = await wallet.signTx(unsignedTx);
+      const signedTx = await wallet.signTx(unsignedTx, true);
       const txHash = await wallet.submitTx(signedTx);
 
       setExecutionState((prev) => ({

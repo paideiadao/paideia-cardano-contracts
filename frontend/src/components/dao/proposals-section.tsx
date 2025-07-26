@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ProposalInfo } from "@/app/api/dao/proposals/route";
+import { useRouter } from "next/navigation";
 
 interface ProposalsSectionProps {
   daoPolicyId: string;
@@ -47,6 +48,8 @@ export function ProposalsSection({
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("newest");
+
+  const router = useRouter();
 
   useEffect(() => {
     fetchProposals();
@@ -277,94 +280,93 @@ export function ProposalsSection({
             const winningOption = getWinningOption(proposal);
 
             return (
-              <Link
+              <Card
+                className="h-full hover:shadow-md transition-shadow hover:cursor-pointer"
                 key={`${proposal.policyId}-${proposal.assetName}`}
-                href={`/dao/proposal?proposalPolicyId=${proposal.policyId}&proposalAssetName=${proposal.assetName}&daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`}
-                className="block"
+                onClick={() => {
+                  router.push(
+                    `/dao/proposal?proposalPolicyId=${proposal.policyId}&proposalAssetName=${proposal.assetName}&daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`
+                  );
+                }}
               >
-                <Card className="h-full hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start gap-2 mb-2">
-                      {getStatusIcon(proposal.status)}
-                      <Badge
-                        variant={getStatusBadgeVariant(proposal.status)}
-                        className="text-xs"
-                      >
-                        {proposal.status === "ReadyForEvaluation"
-                          ? "Ready to Evaluate"
-                          : proposal.status}
-                      </Badge>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start gap-2 mb-2">
+                    {getStatusIcon(proposal.status)}
+                    <Badge
+                      variant={getStatusBadgeVariant(proposal.status)}
+                      className="text-xs"
+                    >
+                      {proposal.status === "ReadyForEvaluation"
+                        ? "Ready to Evaluate"
+                        : proposal.status}
+                    </Badge>
+                  </div>
+                  <CardTitle className="text-base line-clamp-2 leading-tight">
+                    {proposal.name}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {proposal.description}
+                  </p>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-3">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs font-medium">Results</span>
+                      <span className="text-xs text-muted-foreground">
+                        {proposal.totalVotes} votes
+                      </span>
                     </div>
-                    <CardTitle className="text-base line-clamp-2 leading-tight">
-                      {proposal.name}
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {proposal.description}
-                    </p>
-                  </CardHeader>
-                  <CardContent className="pt-0 space-y-3">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-medium">Results</span>
-                        <span className="text-xs text-muted-foreground">
-                          {proposal.totalVotes} votes
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        {proposal.tally.slice(0, 3).map((votes, index) => {
-                          const percentage =
-                            proposal.totalVotes > 0
-                              ? Math.round((votes / proposal.totalVotes) * 100)
-                              : 0;
-                          const isWinning = winningOption?.index === index;
+                    <div className="space-y-1">
+                      {proposal.tally.slice(0, 3).map((votes, index) => {
+                        const percentage =
+                          proposal.totalVotes > 0
+                            ? Math.round((votes / proposal.totalVotes) * 100)
+                            : 0;
+                        const isWinning = winningOption?.index === index;
 
-                          return (
-                            <div
-                              key={index}
-                              className="flex items-center gap-2"
-                            >
-                              <span className="text-xs w-12">Opt {index}</span>
-                              <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                                <div
-                                  className={`h-1.5 rounded-full ${
-                                    isWinning ? "bg-green-500" : "bg-blue-500"
-                                  }`}
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                              <span className="text-xs w-8 text-right">
-                                {percentage}%
-                              </span>
+                        return (
+                          <div key={index} className="flex items-center gap-2">
+                            <span className="text-xs w-12">Opt {index}</span>
+                            <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full ${
+                                  isWinning ? "bg-green-500" : "bg-blue-500"
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              />
                             </div>
-                          );
-                        })}
-                      </div>
+                            <span className="text-xs w-8 text-right">
+                              {percentage}%
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
+                  </div>
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {proposal.status === "Active"
-                            ? formatTimeRemaining(proposal.endTime)
-                            : `Ended ${new Date(
-                                proposal.endTime
-                              ).toLocaleDateString()}`}
-                        </span>
-                      </div>
-                      {proposal.status === "ReadyForEvaluation" && (
-                        <Link
-                          href={`/dao/evaluation?daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`}
-                        >
-                          <Button variant="outline" className="text-xs">
-                            Click to Evaluate
-                          </Button>
-                        </Link>
-                      )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Calendar className="h-3 w-3" />
+                      <span>
+                        {proposal.status === "Active"
+                          ? formatTimeRemaining(proposal.endTime)
+                          : `Ended ${new Date(
+                              proposal.endTime
+                            ).toLocaleDateString()}`}
+                      </span>
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                    {proposal.status === "ReadyForEvaluation" && (
+                      <Link
+                        href={`/dao/evaluation?daoPolicyId=${daoPolicyId}&daoKey=${daoKey}`}
+                      >
+                        <Button variant="outline" className="text-xs">
+                          Click to Evaluate
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
