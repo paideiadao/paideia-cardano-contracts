@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useWallet } from "@meshsdk/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,16 +17,17 @@ import {
   AlertTriangle,
   ExternalLink,
   Vote,
+  History,
   Target,
   User,
-  Info,
+  Webhook,
 } from "lucide-react";
 import Link from "next/link";
 import { ProposalDetails } from "@/app/api/dao/proposal/details/route";
-import { DAOInfo } from "@/app/api/dao/info/route";
+import { useDaoContext } from "@/contexts/dao-context";
 import { getExplorerUrl } from "@/lib/utils";
 import { VotingInterface } from "@/components/dao/voting-interface";
-import { ProposalEvaluation } from "@/components/dao/proposal-evaluation";
+import { ProposalEvaluationButton } from "@/components/dao/evaluation/proposal-evaluation-button";
 import { ExecuteActionButton } from "@/components/dao/execute-action-button";
 import { ActionTargetsDisplay } from "@/components/dao/action-targets-display";
 
@@ -41,6 +42,11 @@ interface LiveStatus {
 export default function ProposalPage() {
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
+  const {
+    daoInfo,
+    canEvaluateProposal,
+    isLoading: isDaoLoading,
+  } = useDaoContext();
 
   const proposalPolicyId = searchParams.get("proposalPolicyId");
   const proposalAssetName = searchParams.get("proposalAssetName");
@@ -48,28 +54,15 @@ export default function ProposalPage() {
   const daoKey = searchParams.get("daoKey");
 
   const [proposal, setProposal] = useState<ProposalDetails | null>(null);
-  const [daoInfo, setDaoInfo] = useState<DAOInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showVotingInterface, setShowVotingInterface] = useState(false);
 
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        await Promise.all([fetchProposal(), fetchDAOInfo()]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load data");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     if (proposalPolicyId && proposalAssetName && daoPolicyId && daoKey) {
-      loadData();
+      fetchProposal();
     } else {
-      setIsLoading(false); // Stop loading if params are missing
+      setIsLoading(false);
     }
   }, [
     proposalPolicyId,
@@ -82,6 +75,9 @@ export default function ProposalPage() {
 
   const fetchProposal = async () => {
     try {
+      setIsLoading(true);
+      setError(null);
+
       let walletAddress = "";
       if (connected && wallet) {
         const usedAddresses = await wallet.getUsedAddresses();
@@ -105,24 +101,6 @@ export default function ProposalPage() {
       setProposal(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load proposal");
-    }
-  };
-
-  const fetchDAOInfo = async () => {
-    try {
-      const response = await fetch(
-        `/api/dao/info?policyId=${encodeURIComponent(
-          daoPolicyId!
-        )}&assetName=${encodeURIComponent(daoKey!)}`
-      );
-      if (!response.ok) {
-        throw new Error("Failed to fetch DAO info");
-      }
-
-      const data = await response.json();
-      setDaoInfo(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load DAO info");
     } finally {
       setIsLoading(false);
     }
@@ -199,26 +177,26 @@ export default function ProposalPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Active":
-        return "bg-blue-100 text-blue-800 border-blue-200";
+        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800";
       case "Passed":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800";
       case "FailedThreshold":
       case "FailedQuorum":
-        return "bg-red-100 text-red-800 border-red-200";
+        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-200 dark:border-red-800";
       default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
+        return "bg-muted text-muted-foreground border-muted";
     }
   };
 
   const getLiveStatusColor = (type: string) => {
     switch (type) {
       case "Passing":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800";
       case "FailedQuorum":
       case "FailedThreshold":
-        return "bg-orange-100 text-orange-800 border-orange-200";
+        return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-200 dark:border-yellow-800";
       default:
-        return "bg-blue-100 text-blue-800 border-blue-200";
+        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800";
     }
   };
 
@@ -264,7 +242,7 @@ export default function ProposalPage() {
     };
   };
 
-  if (isLoading) {
+  if (isLoading || isDaoLoading) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-center py-12">
@@ -303,8 +281,10 @@ export default function ProposalPage() {
   const isActive = proposal.status === "Active";
   const hasEnded = Date.now() > proposal.endTime;
   const liveStatus = calculateLiveStatus();
-
-  console.log(proposal);
+  const showEvaluationButton = canEvaluateProposal(
+    proposal.status,
+    proposal.endTime
+  );
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -345,6 +325,13 @@ export default function ProposalPage() {
                       : "Active"}
                   </div>
                 )}
+                {/* NEW: Time remaining badge in header */}
+                {isActive && !hasEnded && (
+                  <div className="px-2 py-1 rounded-full border text-sm font-medium bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950 dark:text-orange-200 dark:border-orange-800">
+                    <Clock className="h-3 w-3 inline mr-1" />
+                    {formatTimeRemaining(proposal.endTime)}
+                  </div>
+                )}
               </div>
               <p className="text-muted-foreground">{proposal.description}</p>
               {isActive && !hasEnded && (
@@ -353,24 +340,207 @@ export default function ProposalPage() {
                 </p>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                window.open(
-                  getExplorerUrl(`/transaction/${proposal.identifier.txHash}`),
-                  "_blank"
-                )
-              }
-            >
-              <ExternalLink className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Evaluation Button */}
+              {showEvaluationButton && (
+                <ProposalEvaluationButton
+                  proposal={{
+                    policyId: proposal.policyId,
+                    assetName: proposal.assetName,
+                    name: proposal.name,
+                    description: proposal.description,
+                    endTime: proposal.endTime,
+                    totalVotes: proposal.totalVotes,
+                    tally: proposal.tally,
+                    status: proposal.status,
+                  }}
+                  daoPolicyId={daoPolicyId!}
+                  daoKey={daoKey!}
+                  onSuccess={() => window.location.reload()}
+                  variant="outline"
+                  size="sm"
+                />
+              )}
+
+              {/* External Link Button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  window.open(
+                    getExplorerUrl(
+                      `/transaction/${proposal.identifier.txHash}`
+                    ),
+                    "_blank"
+                  )
+                }
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </CardHeader>
       </Card>
 
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
+          {/* UPDATED: Unified Voting Section */}
+          {connected && isActive && !hasEnded && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Voting
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {proposal.userVoteInfo?.hasVoted && !showVotingInterface ? (
+                  // Show current vote status with change vote button
+                  <div className="space-y-4">
+                    <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                          Your Current Vote
+                        </span>
+                        <span className="font-semibold text-green-600 dark:text-green-400">
+                          {proposal.userVoteInfo.votedAmount?.toLocaleString() ??
+                            "Unknown"}{" "}
+                          votes
+                        </span>
+                      </div>
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        Voted for:{" "}
+                        {getOptionLabel(proposal.userVoteInfo.votedOption ?? 0)}
+                      </p>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">
+                        Total Voting Power
+                      </span>
+                      <span className="font-medium">
+                        {proposal.userVoteInfo.votePower?.toLocaleString() ?? 0}{" "}
+                        tokens
+                      </span>
+                    </div>
+
+                    <Button
+                      onClick={() => setShowVotingInterface(true)}
+                      className="w-full"
+                      variant="outline"
+                    >
+                      Change Vote
+                    </Button>
+
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-sm">
+                        Changing your vote will completely replace your previous
+                        vote with your full voting power.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                ) : (
+                  // Show voting interface
+                  <div className="space-y-4">
+                    {proposal.userVoteInfo?.hasVoted && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">
+                          Currently voted for:{" "}
+                          {getOptionLabel(
+                            proposal.userVoteInfo.votedOption ?? 0
+                          )}
+                        </span>
+                        <Button
+                          onClick={() => setShowVotingInterface(false)}
+                          variant="ghost"
+                          size="sm"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+
+                    <VotingInterface
+                      proposal={proposal}
+                      daoPolicyId={daoPolicyId!}
+                      daoKey={daoKey!}
+                      onVoteSuccess={() => {
+                        fetchProposal();
+                        setShowVotingInterface(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Actions */}
+          {proposal.actions.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Webhook className="h-5 w-5" />
+                  Proposal Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {proposal.actions.map((action) => (
+                  <div
+                    key={action.index}
+                    className={`border rounded-lg p-4 ${
+                      action.isExecuted ? "bg-muted/20" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">Option {action.index}</Badge>
+                        <h3 className="font-semibold">{action.name}</h3>
+                        {action.isExecuted && (
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                          >
+                            ✓ Executed
+                          </Badge>
+                        )}
+                      </div>
+                      {proposal.status === "Passed" && !action.isExecuted && (
+                        <ExecuteActionButton
+                          daoPolicyId={daoPolicyId}
+                          daoKey={daoKey}
+                          proposalPolicyId={proposal.policyId}
+                          proposalAssetName={proposal.assetName}
+                          actionIndex={action.index}
+                          size="sm"
+                        />
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {action.description}
+                    </p>
+                    {action.targets && action.targets.length > 0 && (
+                      <ActionTargetsDisplay
+                        targets={action.targets}
+                        showDetails={true}
+                      />
+                    )}
+                    {action.isExecuted && (
+                      <div className="mt-3 p-2 bg-green-50 dark:bg-green-950/30 rounded border border-green-200 dark:border-green-800">
+                        <p className="text-xs text-green-700 dark:text-green-300">
+                          This action has been executed and is now complete.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        <div className="space-y-6">
           {/* Voting Results */}
           <Card>
             <CardHeader>
@@ -429,270 +599,71 @@ export default function ProposalPage() {
             </CardContent>
           </Card>
 
-          {/* Governance Requirements & Proposal Info - Combined Card */}
+          {/* Governance Requirements */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Info className="h-5 w-5" />
-                Proposal Information
+                <Target className="h-5 w-5" />
+                Governance Requirements
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Governance Requirements Section */}
-              {isActive && (
-                <div className="space-y-4">
-                  <h4 className="font-semibold text-sm flex items-center gap-2">
-                    <Target className="h-4 w-4" />
-                    Governance Requirements
-                  </h4>
-
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">
-                          Quorum Progress
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          {proposal.totalVotes.toLocaleString()} /{" "}
-                          {daoInfo.quorum.toLocaleString()} votes
-                        </span>
-                      </div>
-                      <Progress
-                        value={Math.min(liveStatus.quorumProgress * 100, 100)}
-                        className="h-2"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {liveStatus.quorumProgress >= 1
-                          ? "✓ Quorum reached"
-                          : `Need ${(
-                              daoInfo.quorum - proposal.totalVotes
-                            ).toLocaleString()} more votes`}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">
-                          Threshold Progress
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          {winningOption?.percentage ?? 0}% /{" "}
-                          {daoInfo.threshold}% required
-                        </span>
-                      </div>
-                      <Progress
-                        value={Math.min(
-                          liveStatus.thresholdProgress * 100,
-                          100
-                        )}
-                        className="h-2"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {liveStatus.thresholdProgress >= 1
-                          ? "✓ Threshold met"
-                          : `Leading option needs ${(
-                              daoInfo.threshold -
-                              (winningOption?.percentage ?? 0)
-                            ).toFixed(1)}% more support`}
-                      </p>
-                    </div>
-                  </div>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Quorum Progress</span>
+                  <span className="text-sm text-muted-foreground">
+                    {proposal.totalVotes.toLocaleString()} /{" "}
+                    {daoInfo.quorum.toLocaleString()} votes
+                  </span>
                 </div>
-              )}
-
-              {/* Proposal Details Section */}
-              <div className="space-y-3 pt-4 border-t">
-                <h4 className="font-semibold text-sm">Proposal Details</h4>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total Votes</span>
-                    <span className="font-semibold">
-                      {proposal.totalVotes.toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Status</span>
-                    <span className="font-semibold">{proposal.status}</span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Required Quorum
-                    </span>
-                    <span className="font-semibold">
-                      {daoInfo.quorum.toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      Required Threshold
-                    </span>
-                    <span className="font-semibold">{daoInfo.threshold}%</span>
-                  </div>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">End Time</span>
-                  <div className="text-right">
-                    <p className="font-semibold">
-                      {isActive
-                        ? formatTimeRemaining(proposal.endTime)
-                        : "Ended"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(proposal.endTime).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
+                <Progress
+                  value={Math.min(liveStatus.quorumProgress * 100, 100)}
+                  className="h-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {liveStatus.quorumProgress >= 1
+                    ? "✓ Quorum reached"
+                    : `Need ${(
+                        daoInfo.quorum - proposal.totalVotes
+                      ).toLocaleString()} more votes`}
+                </p>
               </div>
 
-              {/* Your Voting Status - Prominent Section */}
-              {connected && proposal.userVoteInfo && (
-                <div className="space-y-3 pt-4 border  rounded-lg p-4">
-                  <h4 className="font-semibold text-sm flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Your Voting Status
-                  </h4>
-
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Current Vote</span>
-                      <span className="font-semibold">
-                        {proposal.userVoteInfo.hasVoted ? (
-                          <div className="text-right">
-                            <div className="text-green-600 dark:text-green-400">
-                              {proposal.userVoteInfo.votedAmount?.toLocaleString() ??
-                                "Unknown"}{" "}
-                              votes on{" "}
-                              {getOptionLabel(
-                                proposal.userVoteInfo.votedOption ?? 0
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Voting again will replace this vote
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            Not voted yet
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">
-                        Total Voting Power
-                      </span>
-                      <span className="font-semibold text-blue-600 dark:text-blue-400">
-                        {proposal.userVoteInfo.votePower?.toLocaleString() ?? 0}{" "}
-                        tokens
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">Can Vote</span>
-                      <span className="font-semibold">
-                        {proposal.userVoteInfo.canVote ? (
-                          <span className="text-green-600 dark:text-green-400">
-                            ✓ Yes
-                          </span>
-                        ) : (
-                          <span className="text-red-600 dark:text-red-400">
-                            ✗ No
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {proposal.userVoteInfo.hasVoted && (
-                    <Alert>
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription className="text-sm">
-                        You can vote again with up to your full voting power (
-                        {proposal.userVoteInfo.votePower?.toLocaleString()}{" "}
-                        tokens). This will completely replace your previous
-                        vote.
-                      </AlertDescription>
-                    </Alert>
-                  )}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">
+                    Threshold Progress
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {winningOption?.percentage ?? 0}% / {daoInfo.threshold}%
+                    required
+                  </span>
                 </div>
-              )}
+                <Progress
+                  value={Math.min(liveStatus.thresholdProgress * 100, 100)}
+                  className="h-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {liveStatus.thresholdProgress >= 1
+                    ? "✓ Threshold met"
+                    : `Leading option needs ${(
+                        daoInfo.threshold - (winningOption?.percentage ?? 0)
+                      ).toFixed(1)}% more support`}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
-          {/* Actions */}
-          {proposal.actions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Proposal Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {proposal.actions.map((action) => (
-                  <div key={action.index} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">Option {action.index}</Badge>
-                        <h3 className="font-semibold">{action.name}</h3>
-                      </div>
-                      {proposal.status === "Passed" && (
-                        <ExecuteActionButton
-                          daoPolicyId={daoPolicyId}
-                          daoKey={daoKey}
-                          proposalPolicyId={proposal.policyId}
-                          proposalAssetName={proposal.assetName}
-                          actionIndex={action.index}
-                          size="sm"
-                        />
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {action.description}
-                    </p>
-                    {action.targets && action.targets.length > 0 && (
-                      <ActionTargetsDisplay
-                        targets={action.targets}
-                        showDetails={false} // Just show summary on proposal page
-                      />
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          {/* Voting Interface */}
-          {isActive && !hasEnded && (
-            <VotingInterface
-              proposal={proposal}
-              daoPolicyId={daoPolicyId!}
-              daoKey={daoKey!}
-              onVoteSuccess={fetchProposal}
-            />
-          )}
-
-          {/* Proposal Evaluation */}
-          {proposal.status === "Active" && Date.now() > proposal.endTime && (
-            <ProposalEvaluation
-              proposal={proposal}
-              daoPolicyId={daoPolicyId!}
-              daoKey={daoKey!}
-              onEvaluationSuccess={fetchProposal}
-            />
-          )}
-
-          {/* Proposal Timeline */}
+          {/* UPDATED: Timeline with end time details */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Timeline</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Timeline
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {/* Proposal Created */}
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                 <div>
@@ -707,6 +678,7 @@ export default function ProposalPage() {
                 </div>
               </div>
 
+              {/* Voting Period */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -723,31 +695,106 @@ export default function ProposalPage() {
                 </div>
               </div>
 
+              {/* UPDATED: Voting Ends with detailed time info */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    hasEnded ? "bg-green-500" : "bg-gray-300"
+                    hasEnded ? "bg-green-500" : "bg-orange-500"
+                  }`}
+                ></div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Voting Ends</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(proposal.endTime).toLocaleString()}
+                  </p>
+                  {!hasEnded && (
+                    <p className="text-xs font-medium text-orange-600 dark:text-orange-400">
+                      {formatTimeRemaining(proposal.endTime)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Proposal Evaluation */}
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    ["Passed", "FailedThreshold", "FailedQuorum"].includes(
+                      proposal.status
+                    )
+                      ? "bg-green-500"
+                      : proposal.status === "ReadyForEvaluation" ||
+                        showEvaluationButton
+                      ? "bg-yellow-500"
+                      : "bg-muted-foreground/30"
                   }`}
                 ></div>
                 <div>
-                  <p className="text-sm font-medium">
-                    {proposal.status === "Passed"
-                      ? "Action Available"
-                      : "Proposal Concluded"}
-                  </p>
+                  <p className="text-sm font-medium">Proposal Evaluation</p>
                   <p className="text-xs text-muted-foreground">
-                    {hasEnded
+                    {["Passed", "FailedThreshold", "FailedQuorum"].includes(
+                      proposal.status
+                    )
                       ? "Completed"
-                      : formatTimeRemaining(proposal.endTime)}
+                      : proposal.status === "ReadyForEvaluation" ||
+                        showEvaluationButton
+                      ? "Ready for evaluation"
+                      : "Pending"}
                   </p>
                 </div>
               </div>
 
+              {/* Action Execution Step */}
+              {proposal.actions.length > 0 && (
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      proposal.actions.every((action) => action.isExecuted)
+                        ? "bg-green-500"
+                        : proposal.status === "Passed" &&
+                          proposal.actions.some((action) => action.isExecuted)
+                        ? "bg-yellow-500"
+                        : proposal.status === "Passed"
+                        ? "bg-blue-500"
+                        : "bg-muted-foreground/30"
+                    }`}
+                  ></div>
+                  <div>
+                    <p className="text-sm font-medium">Action Execution</p>
+                    <p className="text-xs text-muted-foreground">
+                      {proposal.actions.every((action) => action.isExecuted)
+                        ? "All actions executed"
+                        : proposal.status === "Passed" &&
+                          proposal.actions.some((action) => action.isExecuted)
+                        ? `${
+                            proposal.actions.filter((a) => a.isExecuted).length
+                          }/${proposal.actions.length} actions executed`
+                        : proposal.status === "Passed"
+                        ? "Actions available for execution"
+                        : "Pending proposal outcome"}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Status-specific alerts */}
               {proposal.status === "Passed" && proposal.actions.length > 0 && (
                 <Alert>
                   <CheckCircle className="h-4 w-4" />
                   <AlertDescription className="text-sm">
-                    This proposal passed! Actions can now be executed by anyone.
+                    This proposal passed!
+                    {proposal.actions.every((action) => action.isExecuted)
+                      ? " All actions have been executed."
+                      : " Actions can now be executed by anyone."}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {hasEnded && proposal.status === "Active" && (
+                <Alert>
+                  <Clock className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
+                    Voting has ended. This proposal is ready for evaluation.
                   </AlertDescription>
                 </Alert>
               )}

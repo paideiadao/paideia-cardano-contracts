@@ -3,6 +3,7 @@ import { Inter, Viga } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { AppBar } from "@/components/app-bar";
+import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 const viga = Viga({
@@ -28,6 +29,7 @@ export default function RootLayout({
           <div className="min-h-screen bg-background">
             <AppBar />
             <main className="container mx-auto px-4 py-8">{children}</main>
+            <Toaster richColors />
           </div>
         </Providers>
       </body>

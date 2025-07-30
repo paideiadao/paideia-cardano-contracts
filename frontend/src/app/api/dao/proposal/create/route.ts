@@ -397,6 +397,8 @@ async function buildProposalTransactionWithRefs(
 
   console.log("✅ Transaction building complete, adding fee padding...");
 
+  console.log("🔍 INCOMPLETE TX CBOR:", txBuilder.toCbor());
+
   return txBuilder
     .setValidFrom(validityStart)
     .setValidUntil(validityEnd)
@@ -492,13 +494,6 @@ async function addActionToTransactionWithRefs(
     .lockAssets(actionScriptAddress, actionValue, actionDatum);
 }
 
-async function getVotePolicyId(
-  daoPolicyId: string,
-  daoKey: string
-): Promise<string> {
-  return getScriptPolicyId("vote.vote.mint", [daoPolicyId, daoKey]);
-}
-
 function getProposalIdentifier(
   seedUtxo: Core.TransactionUnspentOutput
 ): string {
@@ -540,189 +535,6 @@ function getProposalIdentifier(
   console.log("  Final hash:", hash);
 
   return hash;
-}
-
-async function addActionToTransaction(
-  txBuilder: TransactionBuilder,
-  action: ActionData,
-  proposalPolicyId: string,
-  proposalIdentifier: string,
-  daoInfo: ExtendedDAOInfo,
-  seedUtxo: Core.TransactionUnspentOutput
-): Promise<TransactionBuilder> {
-  const actionScript = createParameterizedScript(
-    "action_send_funds.action_send_funds.mint",
-    [daoInfo.policyId, daoInfo.key]
-  );
-  const actionPolicyId = actionScript.hash();
-
-  // Verify action policy is whitelisted
-  if (!daoInfo.whitelisted_actions.includes(actionPolicyId)) {
-    throw new Error("Action policy not whitelisted in DAO");
-  }
-
-  const actionIdentifier = getActionIdentifier(
-    proposalPolicyId,
-    proposalIdentifier,
-    0
-  );
-
-  const actionDatum = await createActionDatum(
-    action,
-    proposalPolicyId,
-    proposalIdentifier,
-    daoInfo,
-    seedUtxo
-  );
-
-  // Add this right after the action validation debug:
-  console.log("🔍 ACTION IDENTIFIER VERIFICATION:");
-  console.log("Our calculation:");
-  console.log(`  proposal_policy_id: ${proposalPolicyId}`);
-  console.log(`  proposal_identifier: ${proposalIdentifier}`);
-  console.log(`  action_index: 0`);
-  console.log(`  Generated identifier: ${actionIdentifier}`);
-
-  // Calculate what the contract would generate from the action datum
-  const contractCalcData = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalIdentifier)));
-        list.add(Core.PlutusData.newInteger(0n));
-        return list;
-      })()
-    )
-  );
-  const contractCalcIdentifier = Core.blake2b_256(contractCalcData.toCbor());
-
-  console.log("Contract calculation (should match):");
-  console.log(`  CBOR: ${contractCalcData.toCbor()}`);
-  console.log(`  Hash: ${contractCalcIdentifier}`);
-  console.log(`  Match: ${actionIdentifier === contractCalcIdentifier}`);
-
-  // Also check what we're actually minting
-  console.log("Transaction minting:");
-  console.log(`  Minting: ${actionPolicyId}.${actionIdentifier} = 1`);
-  console.log(
-    `  Action output will contain: ${actionPolicyId}.${actionIdentifier} = 1`
-  );
-
-  console.log("🔍 ACTION DATUM DEBUG:");
-  // const parsedActionDatum = await parseActionDatumForDebug(actionDatum);
-  // console.log("  Name:", parsedActionDatum.name);
-  // console.log("  Description:", parsedActionDatum.description);
-  // console.log("  Activation time:", parsedActionDatum.activationTime);
-  // console.log("  Option:", parsedActionDatum.option);
-  // console.log("  Action identifier in datum:");
-  // console.log(
-  //   "    proposal_policy_id:",
-  //   parsedActionDatum.actionIdentifier.proposal_policy_id
-  // );
-  // console.log(
-  //   "    proposal_identifier:",
-  //   parsedActionDatum.actionIdentifier.proposal_identifier
-  // );
-  // console.log(
-  //   "    action_index:",
-  //   parsedActionDatum.actionIdentifier.action_index
-  // );
-  // console.log("  Targets count:", parsedActionDatum.targets.length);
-  // console.log("  Treasury address:", parsedActionDatum.treasury);
-
-  const actionRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(
-      0n,
-      (() => {
-        const list = new Core.PlutusList();
-        list.add(Core.PlutusData.newBytes(Core.fromHex(proposalPolicyId)));
-
-        const outputRefData = Core.PlutusData.newConstrPlutusData(
-          new Core.ConstrPlutusData(
-            0n,
-            (() => {
-              const refList = new Core.PlutusList();
-              refList.add(
-                Core.PlutusData.newBytes(
-                  Core.fromHex(seedUtxo.input().transactionId())
-                )
-              );
-              refList.add(
-                Core.PlutusData.newInteger(BigInt(seedUtxo.input().index()))
-              );
-              return refList;
-            })()
-          )
-        );
-
-        list.add(outputRefData);
-        return list;
-      })()
-    )
-  );
-
-  console.log("🔍 ACTION VALIDATION DEBUG:");
-  console.log(`  Proposal policy ID: ${proposalPolicyId}`);
-  console.log(`  Proposal identifier: ${proposalIdentifier}`);
-  console.log(`  Action index: 0`);
-  console.log(`  Generated action identifier: ${actionIdentifier}`);
-  console.log(`  Action policy ID: ${actionPolicyId}`);
-  console.log(`  DAO whitelisted actions: ${daoInfo.whitelisted_actions}`);
-  console.log(
-    `  Action whitelisted: ${daoInfo.whitelisted_actions.includes(
-      actionPolicyId
-    )}`
-  );
-
-  // Also debug the action redeemer structure
-  console.log("Action redeemer structure:");
-  console.log(`  proposal_policy_id: ${proposalPolicyId}`);
-  console.log(
-    `  proposal_identifier: ${seedUtxo.input().transactionId()}#${seedUtxo
-      .input()
-      .index()}`
-  );
-  console.log(`  Redeemer CBOR: ${actionRedeemer.toCbor()}`);
-
-  const actionMintMap: Map<Core.AssetName, bigint> = new Map();
-  actionMintMap.set(Core.AssetName(actionIdentifier), 1n);
-
-  const actionValue = Core.Value.fromCore({
-    coins: 0n,
-    assets: new Map([
-      [
-        Core.AssetId.fromParts(
-          Core.PolicyId(actionPolicyId),
-          Core.AssetName(actionIdentifier)
-        ),
-        1n,
-      ],
-    ]),
-  });
-
-  const actionScriptAddress = addressFromScript(actionScript);
-
-  console.log("🔍 ACTION DATUM CBOR:", actionDatum.toCbor());
-  console.log("🔍 ACTION DATUM STRUCTURE:");
-  console.log("  Fields count:", 7);
-  console.log("  Targets count:", action.targets.length);
-  if (action.targets.length > 0) {
-    console.log(
-      "  Target 0 - Address length:",
-      Core.addressFromBech32(action.targets[0].address).toBytes().length
-    );
-    console.log(
-      "  Target 0 - ADA amount:",
-      action.targets[0].assets.find((a) => a.unit === "lovelace")?.quantity
-    );
-  }
-
-  return txBuilder
-    .provideScript(actionScript)
-    .addMint(Core.PolicyId(actionPolicyId), actionMintMap, actionRedeemer)
-    .lockAssets(actionScriptAddress, actionValue, actionDatum);
 }
 
 function getActionIdentifier(

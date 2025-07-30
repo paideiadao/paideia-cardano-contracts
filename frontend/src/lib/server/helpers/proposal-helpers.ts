@@ -5,8 +5,12 @@ import plutusJson from "@/lib/scripts/plutus.json";
 import { addressFromScript, createParameterizedScript } from "./script-helpers";
 import { getVotePolicyId } from "./vote-helpers";
 import { ExtendedDAOInfo } from "@/app/api/dao/proposal/create/route";
-import { getCachedUtxos, SCRIPT_TTL } from "./utxo-cache";
-import { fetchDAOInfo } from "./dao-helpers";
+import {
+  getCachedTransactionDetails,
+  getCachedTransactionHistory,
+  getCachedUtxos,
+  SCRIPT_TTL,
+} from "./utxo-cache";
 import { addressToPlutusData, plutusDataToAddress } from "./address-parsing";
 import { TransactionUnspentOutput } from "@blaze-cardano/core";
 
@@ -298,22 +302,10 @@ export async function findProposalActions(
     name: string;
     description: string;
     targets: ActionTarget[];
+    isExecuted: boolean;
   }>
 > {
   try {
-    // Get the actual proposal UTXO to extract the correct identifier
-    const proposalUtxo = await getProposalUtxo(
-      proposalPolicyId,
-      proposalAssetName,
-      daoPolicyId,
-      daoKey
-    );
-
-    if (!proposalUtxo) {
-      console.log("No proposal UTXO found for actions search");
-      return [];
-    }
-
     console.log("🔍 SEARCHING FOR ACTIONS:");
     console.log(`  Proposal policy ID: ${proposalPolicyId}`);
     console.log(`  Proposal asset name: ${proposalAssetName}`);
@@ -324,41 +316,94 @@ export async function findProposalActions(
     );
     const actionScriptAddress = addressFromScript(actionScript);
 
-    const actionUtxos = await getCachedUtxos(actionScriptAddress, SCRIPT_TTL);
+    // Get transaction summaries (cached for 2 minutes)
+    const transactionHistory = await getCachedTransactionHistory(
+      actionScriptAddress
+    );
+
+    console.log(`  Found ${transactionHistory.length} transactions to analyze`);
+
+    if (transactionHistory.length === 0) {
+      return [];
+    }
+
+    // Fetch full transaction details for each transaction
+    const transactions = [];
+    for (const txHash of transactionHistory) {
+      try {
+        const fullTx = await getCachedTransactionDetails(txHash);
+        transactions.push(fullTx);
+      } catch (error) {
+        console.error(`  Error fetching full details for ${txHash}:`, error);
+        // Continue with other transactions
+      }
+    }
+
+    console.log(
+      `  Successfully loaded ${transactions.length} full transaction details`
+    );
+
     const actions: Array<{
       index: number;
       name: string;
       description: string;
       targets: ActionTarget[];
+      isExecuted: boolean;
     }> = [];
 
-    console.log(`  Found ${actionUtxos.length} action UTXOs to check`);
+    // Track which action UTXOs have been spent (executed)
+    const spentOutputs = new Set<string>();
+    const createdOutputs = new Map<string, any>();
 
-    for (const utxo of actionUtxos) {
+    // Analyze all transactions to find actions
+    for (const tx of transactions) {
       try {
-        const datum = utxo.output().datum()?.asInlineData();
-        if (!datum) {
-          console.log(
-            `  UTXO ${utxo.input().transactionId()}#${utxo
-              .input()
-              .index()}: No datum`
-          );
+        // Check inputs to see what was spent
+        for (const input of tx.inputs ?? []) {
+          const utxoKey = `${input.tx_hash}#${input.index}`;
+          spentOutputs.add(utxoKey);
+        }
+
+        // Check outputs to see what was created at this address
+        for (let i = 0; i < (tx.outputs ?? []).length; i++) {
+          const output = tx.outputs[i];
+          if (output.address === actionScriptAddress.toBech32()) {
+            const utxoKey = `${tx.tx_hash}#${i}`;
+            createdOutputs.set(utxoKey, {
+              txHash: tx.tx_hash,
+              outputIndex: i,
+              output,
+              datum: output.datum?.bytes,
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`  Error analyzing transaction ${tx.hash}:`, error);
+        continue;
+      }
+    }
+
+    console.log(`  Found ${createdOutputs.size} action outputs created`);
+    console.log(`  Found ${spentOutputs.size} outputs spent`);
+
+    // Parse action data from all created outputs
+    for (const [utxoKey, outputData] of createdOutputs) {
+      try {
+        if (!outputData.datum) {
+          console.log(`  ${utxoKey}: No datum`);
           continue;
         }
 
+        // Convert the datum to Core.PlutusData format
+        const datum = Core.PlutusData.fromCbor(Core.HexBlob(outputData.datum));
         const actionData = parseActionDatum(datum);
+
         if (!actionData) {
-          console.log(
-            `  UTXO ${utxo.input().transactionId()}#${utxo
-              .input()
-              .index()}: Failed to parse datum`
-          );
+          console.log(`  ${utxoKey}: Failed to parse datum`);
           continue;
         }
 
-        console.log(
-          `  UTXO ${utxo.input().transactionId()}#${utxo.input().index()}:`
-        );
+        console.log(`  ${utxoKey}:`);
         console.log(`    Action name: ${actionData.name}`);
         console.log(
           `    Proposal policy ID: ${actionData.actionIdentifier.proposal_policy_id}`
@@ -366,44 +411,29 @@ export async function findProposalActions(
         console.log(
           `    Proposal identifier: ${actionData.actionIdentifier.proposal_identifier}`
         );
-        console.log(`    Expected policy ID: ${proposalPolicyId}`);
-        console.log(`    Expected asset name: ${proposalAssetName}`);
 
-        // Check if this action belongs to the proposal
+        // Check if this action belongs to our proposal
         if (
-          actionData.actionIdentifier.proposal_policy_id === proposalPolicyId
+          actionData.actionIdentifier.proposal_policy_id === proposalPolicyId &&
+          actionData.actionIdentifier.proposal_identifier === proposalAssetName
         ) {
-          console.log(`    ✅ Policy ID matches!`);
+          console.log(`    ✅ Matches proposal!`);
 
-          // Try matching against the asset name directly first
-          if (
-            actionData.actionIdentifier.proposal_identifier ===
-            proposalAssetName
-          ) {
-            console.log(`    ✅ Asset name matches!`);
-            actions.push({
-              index: actionData.actionIdentifier.action_index,
-              name: actionData.name,
-              description: actionData.description,
-              targets: actionData.targets,
-            });
-          } else {
-            console.log(`    ❌ Asset name doesn't match`);
-            console.log(`    Expected: ${proposalAssetName}`);
-            console.log(
-              `    Got: ${actionData.actionIdentifier.proposal_identifier}`
-            );
-          }
+          const isExecuted = spentOutputs.has(utxoKey);
+          console.log(`    Executed: ${isExecuted ? "✅" : "❌"}`);
+
+          actions.push({
+            index: actionData.actionIdentifier.action_index,
+            name: actionData.name,
+            description: actionData.description,
+            targets: actionData.targets,
+            isExecuted,
+          });
         } else {
-          console.log(`    ❌ Policy ID doesn't match`);
+          console.log(`    ❌ Doesn't match proposal`);
         }
       } catch (error) {
-        console.error(
-          `  Error parsing action UTXO ${utxo.input().transactionId()}#${utxo
-            .input()
-            .index()}:`,
-          error
-        );
+        console.error(`  Error parsing action from ${utxoKey}:`, error);
         continue;
       }
     }
@@ -606,10 +636,10 @@ export async function createActionDatum(
 ): Promise<Core.PlutusData> {
   const fields = new Core.PlutusList();
 
-  // Field 0: name (String - not bytes!)
+  // Field 0: name
   fields.add(Core.PlutusData.newBytes(new TextEncoder().encode(action.name)));
 
-  // Field 1: description (String - not bytes!)
+  // Field 1: description
   fields.add(
     Core.PlutusData.newBytes(new TextEncoder().encode(action.description))
   );
@@ -637,48 +667,94 @@ export async function createActionDatum(
   fields.add(Core.PlutusData.newInteger(1n));
 
   // Field 5: targets
+  console.log("🎯 CREATING TARGETS LIST:");
+  console.log(`  Number of targets: ${action.targets.length}`);
+
   const targetsList = new Core.PlutusList();
-  for (const target of action.targets) {
+  for (const [index, target] of action.targets.entries()) {
+    console.log(`\n  📍 TARGET ${index}:`);
+    console.log(`    Address: ${target.address}`);
+    console.log(`    Assets:`, target.assets);
+
     const targetFields = new Core.PlutusList();
 
-    // Address - USE THE HELPER FUNCTION
-    targetFields.add(addressToPlutusData(target.address));
+    // Address field
+    console.log("    🔍 Processing target address...");
+    const targetAddressData = addressToPlutusData(target.address);
+    console.log(
+      "    🔍 Target address PlutusData CBOR:",
+      targetAddressData.toCbor()
+    );
+    targetFields.add(targetAddressData);
 
-    // Coins
+    // Coins field
     const adaAsset = target.assets.find((a) => a.unit === "lovelace");
     const lovelaceAmount = adaAsset
       ? BigInt(parseFloat(adaAsset.quantity) * 1_000_000)
       : 0n;
-    targetFields.add(Core.PlutusData.newInteger(lovelaceAmount));
+    console.log(`    💰 Lovelace amount: ${lovelaceAmount}`);
+    const coinsData = Core.PlutusData.newInteger(lovelaceAmount);
+    console.log(`    💰 Coins PlutusData CBOR: ${coinsData.toCbor()}`);
+    targetFields.add(coinsData);
 
-    // Tokens - Record(String, Record(String, BigInt)) - empty record
+    // Tokens field
+    console.log("    🪙 Creating empty tokens map...");
     const emptyTokensRecord = new Core.PlutusMap();
-    targetFields.add(Core.PlutusData.newMap(emptyTokensRecord));
+    const tokensData = Core.PlutusData.newMap(emptyTokensRecord);
+    console.log(`    🪙 Tokens PlutusData CBOR: ${tokensData.toCbor()}`);
+    targetFields.add(tokensData);
 
-    // Datum - NoDatum literal
+    // Datum field
+    console.log("    📄 Creating NoDatum...");
     const noDatum = Core.PlutusData.newConstrPlutusData(
       new Core.ConstrPlutusData(0n, new Core.PlutusList())
     );
+    console.log(`    📄 NoDatum PlutusData CBOR: ${noDatum.toCbor()}`);
     targetFields.add(noDatum);
 
+    // Complete Target construction
     const targetData = Core.PlutusData.newConstrPlutusData(
       new Core.ConstrPlutusData(0n, targetFields)
     );
+    console.log(`    ✅ Complete Target ${index} CBOR: ${targetData.toCbor()}`);
+    console.log(
+      `    ✅ Target ${index} fields count: ${targetFields.getLength()}`
+    );
+
     targetsList.add(targetData);
   }
-  fields.add(Core.PlutusData.newList(targetsList));
 
-  // Field 6: treasury - USE THE HELPER FUNCTION
+  const targetsListData = Core.PlutusData.newList(targetsList);
+  console.log(`\n🎯 FINAL TARGETS LIST:`);
+  console.log(`  Targets list length: ${targetsList.getLength()}`);
+  console.log(`  Targets list CBOR: ${targetsListData.toCbor()}`);
+
+  fields.add(targetsListData);
+
+  // Field 6: treasury
   const treasuryScript = createParameterizedScript("treasury.treasury.spend", [
     daoInfo.policyId,
     daoInfo.key,
   ]);
   const treasuryAddress = addressFromScript(treasuryScript);
-  fields.add(addressToPlutusData(treasuryAddress.toBech32()));
+  console.log("🔍 Processing treasury address:", treasuryAddress.toBech32());
+  const treasuryAddressData = addressToPlutusData(treasuryAddress.toBech32());
+  console.log(
+    "🔍 Treasury address PlutusData CBOR:",
+    treasuryAddressData.toCbor()
+  );
+  fields.add(treasuryAddressData);
 
-  return Core.PlutusData.newConstrPlutusData(
+  const actionDatum = Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(0n, fields)
   );
+
+  console.log(`\n🏗️ COMPLETE ACTION DATUM:`);
+  console.log(`  Fields count: ${fields.getLength()}`);
+  console.log(`  Action datum CBOR: ${actionDatum.toCbor()}`);
+  console.log(`  Action datum size: ${actionDatum.toCbor().length / 2} bytes`);
+
+  return actionDatum;
 }
 
 export async function createProposalDatum(

@@ -98,3 +98,31 @@ model UtxoCache {
   @@index([address])
   @@map("utxo_cache")
 }
+
+model Transaction {
+  txHash    String   @id
+  slot      Int?     // Critical for chronological ordering
+  timestamp DateTime? // For proposal timing logic
+  mint      Json?    // Track minting/burning of DAO tokens
+  rawData   Json     // Full Maestro data for complex analysis
+  network   String
+  createdAt DateTime @default(now())
+  
+  addresses Address[]
+  
+  @@index([slot])
+  @@index([timestamp])
+  @@index([network])
+  @@map("transactions")
+}
+
+model Address {
+  address     String   @id
+  network     String
+  lastFetched DateTime?
+  
+  transactions Transaction[]
+  
+  @@index([network])
+  @@map("addresses")
+}

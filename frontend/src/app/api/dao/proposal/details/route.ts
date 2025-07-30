@@ -32,6 +32,7 @@ export interface ProposalDetails {
     name: string;
     description: string;
     targets: ActionTarget[];
+    isExecuted: boolean;
   }>;
   userVoteInfo?: {
     hasVoted: boolean;
@@ -95,6 +96,8 @@ export async function GET(request: NextRequest) {
       daoPolicyId,
       daoKey
     );
+
+    console.log("the actions: ", actions);
 
     // Check user vote status if wallet address provided
     let userVoteInfo;
