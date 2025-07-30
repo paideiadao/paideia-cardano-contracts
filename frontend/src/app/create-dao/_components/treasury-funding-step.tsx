@@ -36,10 +36,10 @@ interface TreasuryAsset {
 }
 
 interface TreasuryFundingStepProps {
-  onComplete: () => void;
+  onBack: () => void;
 }
 
-export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
+export function TreasuryFundingStep({ onBack }: TreasuryFundingStepProps) {
   const { wallet, connected } = useWallet();
   const { daoPolicyId, daoAssetName } = useDAOCreationStore();
 
@@ -321,10 +321,19 @@ export function TreasuryFundingStep({ onComplete }: TreasuryFundingStepProps) {
       </Alert>
 
       <div className="flex justify-between pt-4">
-        <Button variant="outline" onClick={() => window.history.back()}>
+        <Button variant="outline" onClick={onBack}>
           Back to DAO Summary
         </Button>
-        <Button onClick={onComplete}>Complete DAO Setup</Button>
+        <Button
+          onClick={() =>
+            window.open(
+              `/dao?policyId=${daoPolicyId}&assetName=${daoAssetName}`,
+              "_blank"
+            )
+          }
+        >
+          View DAO
+        </Button>
       </div>
     </div>
   );

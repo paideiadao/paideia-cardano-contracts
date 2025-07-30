@@ -15,25 +15,23 @@ import {
   AlertTriangle,
   CheckCircle,
 } from "lucide-react";
-import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import Link from "next/link";
 import { formatDuration, getExplorerUrl } from "@/lib/utils";
 import { ProposalsSection } from "@/components/dao/proposals-section";
+import { useDaoContext } from "@/contexts/dao-context";
 
 export default function ViewDAOPage() {
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
   const policyId = searchParams.get("policyId");
   const assetName = searchParams.get("assetName");
-
-  const [daoInfo, setDaoInfo] = useState<DAOInfo | null>(null);
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isCheckingRegistration, setIsCheckingRegistration] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("overview");
+
+  const { daoInfo, isLoading: isDaoLoading, error } = useDaoContext();
 
   // Generate unique key for this DAO
   const daoKey =
@@ -61,46 +59,12 @@ export default function ViewDAOPage() {
   };
 
   useEffect(() => {
-    if (policyId && assetName) {
-      fetchDAOInfo();
-    } else {
-      setError("Missing policyId or assetName parameters");
-      setIsLoading(false);
-    }
-  }, [policyId, assetName]);
-
-  useEffect(() => {
     if (connected && wallet && policyId && assetName) {
       checkRegistrationStatus();
     } else {
       setRegistrationStatus(null);
     }
   }, [connected, wallet, policyId, assetName]);
-
-  const fetchDAOInfo = async () => {
-    if (!policyId || !assetName) return;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/dao/info?policyId=${encodeURIComponent(
-          policyId
-        )}&assetName=${encodeURIComponent(assetName)}`
-      );
-      if (!response.ok) {
-        throw new Error("Failed to fetch DAO info");
-      }
-
-      const data = await response.json();
-      setDaoInfo(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load DAO");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const checkRegistrationStatus = async () => {
     if (!connected || !wallet || !policyId || !assetName) return;
@@ -193,8 +157,8 @@ export default function ViewDAOPage() {
       <div className="flex items-center justify-end gap-2">
         {registrationStatus?.lockedGovernanceTokens && (
           <div className="flex items-center gap-2 text-sm">
-            <CheckCircle className="h-4 w-4 text-green-600" />
-            <span className="text-green-700 dark:text-green-300">
+            <CheckCircle className="h-4 w-4 text-success" />
+            <span className="text-success">
               Registered:{" "}
               {registrationStatus.lockedGovernanceTokens.toLocaleString()}{" "}
               tokens locked
@@ -220,7 +184,7 @@ export default function ViewDAOPage() {
     );
   };
 
-  if (isLoading) {
+  if (isDaoLoading) {
     return (
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-center py-12">

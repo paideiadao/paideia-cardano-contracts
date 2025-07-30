@@ -102,7 +102,6 @@ export const useDAOCreationStore = create<DAOCreationState>()(
           daoAssetName: assetName,
         }),
 
-      // Fixed: Proper implementation
       setDeployedDAO: (dao) => set({ deployedDAO: dao }),
 
       canProceedToStep: (step) => {
@@ -143,7 +142,7 @@ export const useDAOCreationStore = create<DAOCreationState>()(
         daoTxHash: state.daoTxHash,
         daoPolicyId: state.daoPolicyId,
         daoAssetName: state.daoAssetName,
-        deployedDAO: state.deployedDAO, // Added to persistence
+        deployedDAO: state.deployedDAO,
       }),
     }
   )

@@ -18,6 +18,12 @@ import {
 import { useDAOCreationStore } from "@/lib/stores/dao-creation-store";
 import { getExplorerUrl } from "@/lib/utils";
 import { ScriptDeploymentSection } from "./deploy-scripts";
+import { CopyButton } from "@/components/ui/copy-button";
+
+interface DeployDaoStepProps {
+  onComplete: () => void;
+  onBack: () => void;
+}
 
 interface DAOCreationPlan {
   daoParams: {
@@ -53,7 +59,10 @@ type DeploymentPhase =
   | "finalize"
   | "complete";
 
-export default function DeployDaoStep() {
+export default function DeployDaoStep({
+  onComplete,
+  onBack,
+}: DeployDaoStepProps) {
   const { wallet, connected } = useWallet();
   const {
     governanceToken,
@@ -319,11 +328,11 @@ export default function DeployDaoStep() {
 
         <div className="flex gap-2 flex-wrap">
           <Button onClick={downloadDAOConfig}>
-            <Download className="w-4 h-4 mr-2" />
+            <Download className="w-4 h-4 mr-1" />
             Download Config
           </Button>
           <Button variant="outline" onClick={copyDAOInfo}>
-            <Copy className="w-4 h-4 mr-2" />
+            <Copy className="w-4 h-4 mr-1" />
             Copy DAO Info
           </Button>
           <Button
@@ -335,10 +344,11 @@ export default function DeployDaoStep() {
               )
             }
           >
-            <ExternalLink className="w-4 h-4 mr-2" />
+            <ExternalLink className="w-4 h-4 mr-1" />
             View Creation Tx
           </Button>
           <Button
+            variant="secondary"
             onClick={() =>
               window.open(
                 `/dao?policyId=${deployedDAO.policyId}&assetName=${deployedDAO.assetName}`,
@@ -356,7 +366,18 @@ export default function DeployDaoStep() {
             <div className="space-y-2">
               <p className="font-medium">What's Next?</p>
               <ol className="list-decimal list-inside space-y-1 text-sm">
-                <li>Share the DAO Policy ID with your community</li>
+                <li>Fund the treasury</li>
+                <li>
+                  Share the{" "}
+                  <CopyButton
+                    textToCopy={`${window.location.origin}/dao?policyId=${deployedDAO.policyId}&assetName=${deployedDAO.assetName}`}
+                    className="text-secondary hover:text-secondary-border hover:underline cursor-pointer"
+                    popoverMessage="DAO URL copied!"
+                  >
+                    <span>DAO Url</span>
+                  </CopyButton>{" "}
+                  with your community
+                </li>
                 <li>
                   Community members can register to vote by locking governance
                   tokens
@@ -367,6 +388,14 @@ export default function DeployDaoStep() {
             </div>
           </AlertDescription>
         </Alert>
+        <div className="flex justify-between pt-4">
+          <Button onClick={onBack} variant="outline">
+            Back to Configure
+          </Button>
+          <Button onClick={onComplete}>
+            Continue to Fund Treasury (optional)
+          </Button>
+        </div>
       </div>
     );
   }

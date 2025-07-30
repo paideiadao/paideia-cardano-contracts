@@ -95,9 +95,9 @@ export default function CreateDAOPage() {
   const getStepIcon = (status: StepStatus, stepIndex: number) => {
     switch (status) {
       case "completed":
-        return <Check className="h-5 w-5 text-green-600" />;
+        return <Check className="h-5 w-5 text-current" />;
       case "active":
-        return <Clock className="h-5 w-5 text-blue-600" />;
+        return <Clock className="h-5 w-5 text-current" />;
       default:
         return <Circle className="h-5 w-5 text-gray-400" />;
     }
@@ -145,8 +145,8 @@ export default function CreateDAOPage() {
                   key={step.id}
                   className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
                     index === currentStep
-                      ? "bg-blue-50 dark:bg-blue-950/30"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-800"
+                      ? "bg-secondary/20"
+                      : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
                   }`}
                   onClick={() => goToStep(index)}
                 >
@@ -157,9 +157,7 @@ export default function CreateDAOPage() {
                     <div className="flex items-center gap-2 mb-1">
                       <h3
                         className={`font-medium text-sm ${
-                          index === currentStep
-                            ? "text-blue-700 dark:text-blue-300"
-                            : ""
+                          index === currentStep ? "" : ""
                         }`}
                       >
                         {step.title}
@@ -199,11 +197,19 @@ export default function CreateDAOPage() {
                 <GovernanceTokenStep onComplete={() => goToStep(1)} />
               )}
               {currentStep === 1 && (
-                <DAOConfigStep onComplete={() => goToStep(2)} />
+                <DAOConfigStep
+                  onComplete={() => goToStep(2)}
+                  onBack={() => goToStep(0)}
+                />
               )}
-              {currentStep === 2 && <DeployDaoStep />}
+              {currentStep === 2 && (
+                <DeployDaoStep
+                  onComplete={() => goToStep(3)}
+                  onBack={() => goToStep(1)}
+                />
+              )}
               {currentStep === 3 && (
-                <TreasuryFundingStep onComplete={() => goToStep(3)} />
+                <TreasuryFundingStep onBack={() => goToStep(2)} />
               )}
             </CardContent>
           </Card>

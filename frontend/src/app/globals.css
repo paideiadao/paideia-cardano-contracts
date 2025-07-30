@@ -29,10 +29,6 @@
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -41,6 +37,25 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-border: var(--warning-border);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-border: var(--info-border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-border: var(--destructive-border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-border: var(--primary-border);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-border: var(--secondary-border);
 }
 
 :root {
@@ -51,10 +66,10 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --primary: oklch(0.542 0.097 194.318); /* #00868F teal */
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.678 0.138 45.201); /* #FF8219 orange */
+  --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
@@ -76,6 +91,23 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Brand-aligned status colors */
+  --success: oklch(0.6 0.08 160); /* Muted teal-green */
+  --success-foreground: oklch(0.985 0 0);
+  --warning: oklch(0.7 0.1 60); /* Muted orange-yellow */
+  --warning-foreground: oklch(0.145 0 0);
+  --destructive: oklch(0.55 0.12 25); /* Muted red-orange */
+  --destructive-foreground: oklch(0.985 0 0);
+  --info: oklch(0.55 0.08 220); /* Muted blue-teal */
+  --info-foreground: oklch(0.985 0 0);
+  /* Border variants - lighter versions of main colors */
+  --success-border: oklch(0.75 0.06 160);
+  --warning-border: oklch(0.8 0.08 60);
+  --destructive-border: oklch(0.7 0.1 25);
+  --info-border: oklch(0.7 0.06 220);
+  --primary-border: oklch(0.7 0.08 194);
+  --secondary-border: oklch(0.8 0.1 45);
 }
 
 .dark {
@@ -85,9 +117,9 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.542 0.097 194.318); /* #00868F teal */
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.678 0.138 45.201); /* #FF8219 orange */
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
@@ -110,6 +142,23 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Adjusted for dark mode */
+  --success: oklch(0.65 0.1 160);
+  --success-foreground: oklch(0.145 0 0);
+  --warning: oklch(0.75 0.12 60);
+  --warning-foreground: oklch(0.145 0 0);
+  --destructive: oklch(0.65 0.15 25);
+  --destructive-foreground: oklch(0.985 0 0);
+  --info: oklch(0.65 0.1 220);
+  --info-foreground: oklch(0.145 0 0);
+  /* Dark mode borders - muted versions */
+  --success-border: oklch(0.75 0.06 160);
+  --warning-border: oklch(0.8 0.08 60);
+  --destructive-border: oklch(0.7 0.1 25);
+  --info-border: oklch(0.7 0.06 220);
+  --primary-border: oklch(0.7 0.08 194);
+  --secondary-border: oklch(0.8 0.1 45);
 }
 
 @layer base {

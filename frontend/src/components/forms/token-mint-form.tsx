@@ -157,8 +157,8 @@ export function TokenMintForm() {
               <AccordionTrigger>What tokens will be created?</AccordionTrigger>
               <AccordionContent className="space-y-4">
                 <div className="space-y-3">
-                  <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="font-semibold text-blue-700">
+                  <div className="border-l-4 border-primary pl-4">
+                    <h4 className="font-semibold text-primary">
                       Governance Token ({formData.symbol || "SYMBOL"})
                     </h4>
                     <p className="text-sm text-muted-foreground">
@@ -168,8 +168,8 @@ export function TokenMintForm() {
                     </p>
                   </div>
 
-                  <div className="border-l-4 border-purple-500 pl-4">
-                    <h4 className="font-semibold text-purple-700">
+                  <div className="border-l-4 border-secondary pl-4">
+                    <h4 className="font-semibold text-secondary">
                       Minting Authority (AUTH_{formData.symbol || "SYMBOL"})
                     </h4>
                     <p className="text-sm text-muted-foreground">

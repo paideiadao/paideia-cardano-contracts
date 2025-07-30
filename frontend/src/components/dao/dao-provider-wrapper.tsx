@@ -6,8 +6,8 @@ import { ReactNode } from "react";
 
 export function DaoProviderWrapper({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
-  const daoPolicyId = searchParams.get("daoPolicyId") ?? "";
-  const daoKey = searchParams.get("daoKey") ?? "";
+  const daoPolicyId = searchParams.get("policyId") ?? "";
+  const daoKey = searchParams.get("assetName") ?? "";
 
   return (
     <DaoProvider daoPolicyId={daoPolicyId} daoKey={daoKey}>

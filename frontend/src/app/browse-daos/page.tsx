@@ -100,7 +100,7 @@ export default function BrowseDAOsPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-blue-600" />
+              <Users className="h-4 w-4 text-info" />
               <span className="text-sm font-medium">Total DAOs</span>
             </div>
             <p className="text-2xl font-bold">{daos.length}</p>
@@ -109,7 +109,7 @@ export default function BrowseDAOsPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-green-600" />
+              <Search className="h-4 w-4 text-success" />
               <span className="text-sm font-medium">Filtered Results</span>
             </div>
             <p className="text-2xl font-bold">{filteredDaos.length}</p>
@@ -118,7 +118,7 @@ export default function BrowseDAOsPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
-              <Coins className="h-4 w-4 text-purple-600" />
+              <Coins className="h-4 w-4 text-secondary" />
               <span className="text-sm font-medium">Active Governance</span>
             </div>
             <p className="text-2xl font-bold">

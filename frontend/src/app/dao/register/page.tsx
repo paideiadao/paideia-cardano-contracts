@@ -29,8 +29,8 @@ import {
   Info,
   Vote,
 } from "lucide-react";
-import { DAOInfo } from "@/app/api/dao/info/route";
 import { getExplorerUrl } from "@/lib/utils";
+import { useDaoContext } from "@/contexts/dao-context";
 
 type RegistrationState = "idle" | "building" | "signing" | "submitting";
 
@@ -38,12 +38,11 @@ export default function RegisterPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
+  const { daoInfo, isLoading: isLoadingDAO } = useDaoContext();
 
   const policyId = searchParams.get("policyId");
   const assetName = searchParams.get("assetName");
 
-  const [daoInfo, setDaoInfo] = useState<DAOInfo | null>(null);
-  const [isLoadingDAO, setIsLoadingDAO] = useState(true);
   const [governanceBalance, setGovernanceBalance] = useState<number>(0);
   const [registrationAmount, setRegistrationAmount] = useState<number>(0);
   const [registrationState, setRegistrationState] =
@@ -57,42 +56,10 @@ export default function RegisterPage() {
   } | null>(null);
 
   useEffect(() => {
-    if (policyId && assetName) {
-      fetchDAOInfo();
-    } else {
-      setError("Missing DAO parameters");
-      setIsLoadingDAO(false);
-    }
-  }, [policyId, assetName]);
-
-  useEffect(() => {
     if (daoInfo && connected && wallet) {
       fetchGovernanceBalance();
     }
   }, [daoInfo, connected, wallet]);
-
-  const fetchDAOInfo = async () => {
-    if (!policyId || !assetName) return;
-
-    setIsLoadingDAO(true);
-    try {
-      const response = await fetch(
-        `/api/dao/info?policyId=${encodeURIComponent(
-          policyId
-        )}&assetName=${encodeURIComponent(assetName)}`
-      );
-      if (!response.ok) {
-        throw new Error("Failed to fetch DAO info");
-      }
-
-      const data = await response.json();
-      setDaoInfo(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load DAO");
-    } finally {
-      setIsLoadingDAO(false);
-    }
-  };
 
   const fetchGovernanceBalance = async () => {
     if (!daoInfo || !wallet) return;

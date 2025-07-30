@@ -408,7 +408,7 @@ export function ScriptDeploymentSection({
 
       if (failureCount > 0) {
         onError(
-          `${failureCount} script(s) failed to deploy. Use individual retry buttons to fix them.`
+          `${failureCount} script(s) didn't appear to deploy. Check your wallet before retrying, it may still be confirming on-chain.`
         );
       }
 
@@ -426,13 +426,13 @@ export function ScriptDeploymentSection({
   const getStatusIcon = (status: DeploymentStep["status"]) => {
     switch (status) {
       case "pending":
-        return <div className="w-4 h-4 rounded-full bg-gray-300" />;
+        return <div className="w-4 h-4 rounded-full bg-neutral-300" />;
       case "deploying":
-        return <Loader2 className="w-4 h-4 animate-spin text-blue-600" />;
+        return <Loader2 className="w-4 h-4 animate-spin text-info" />;
       case "success":
-        return <CheckCircle className="w-4 h-4 text-green-600" />;
+        return <CheckCircle className="w-4 h-4 text-success" />;
       case "error":
-        return <AlertTriangle className="w-4 h-4 text-red-600" />;
+        return <AlertTriangle className="w-4 h-4 text-desctructive" />;
     }
   };
 
@@ -441,11 +441,11 @@ export function ScriptDeploymentSection({
       case "pending":
         return "bg-gray-100 text-gray-800";
       case "deploying":
-        return "bg-blue-100 text-blue-800";
+        return "bg-secondary text-secondary-foreground";
       case "success":
-        return "bg-green-100 text-green-800";
+        return "bg-success text-success-foreground";
       case "error":
-        return "bg-red-100 text-red-800";
+        return "bg-destructive text-destructive-foreground";
     }
   };
 
@@ -521,7 +521,9 @@ export function ScriptDeploymentSection({
                     {step.description}
                   </p>
                   {step.error && (
-                    <p className="text-sm text-red-600 mt-1">{step.error}</p>
+                    <p className="text-sm text-destructive mt-1">
+                      {step.error}
+                    </p>
                   )}
                 </div>
               </div>

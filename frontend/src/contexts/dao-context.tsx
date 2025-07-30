@@ -1,4 +1,5 @@
 "use client";
+import { DAOInfo } from "@/app/api/dao/info/route";
 import {
   createContext,
   useContext,
@@ -7,23 +8,6 @@ import {
   ReactNode,
   useCallback,
 } from "react";
-
-export interface DAOInfo {
-  policyId: string;
-  name: string;
-  governanceToken: string;
-  threshold: number;
-  minProposalTime: number;
-  maxProposalTime: number;
-  quorum: number;
-  minGovProposalCreate: number;
-  whitelistedProposals: string[];
-  whitelistedActions: string[];
-  deploymentTx: string;
-  address: string;
-  network: string;
-  createdAt: string;
-}
 
 export interface ProposalStatus {
   type: "FailedQuorum" | "FailedThreshold" | "Passing";
@@ -62,6 +46,17 @@ export function DaoProvider({
   const [error, setError] = useState<string | null>(null);
   const [currentDaoKey, setCurrentDaoKey] = useState<string>("");
 
+  useEffect(() => {
+    if (daoInfo?.name) {
+      document.title = `${daoInfo.name} | Paideia`;
+
+      // Clean up when component unmounts or DAO changes
+      return () => {
+        document.title = "Paideia DAO"; // Reset to default
+      };
+    }
+  }, [daoInfo?.name]);
+
   const fetchDaoInfo = useCallback(async () => {
     if (!daoPolicyId || !daoKey) {
       setError("Missing DAO parameters");
@@ -88,6 +83,7 @@ export function DaoProvider({
       if (!response.ok) {
         throw new Error("Failed to fetch DAO info");
       }
+      console.log("response:", response);
       const data = await response.json();
       setDaoInfo(data);
     } catch (err) {

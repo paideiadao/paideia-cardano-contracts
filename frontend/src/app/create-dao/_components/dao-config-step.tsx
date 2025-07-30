@@ -25,9 +25,11 @@ import {
   DAOConfig,
 } from "@/lib/stores/dao-creation-store";
 import { formatDuration } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface DAOConfigStepProps {
   onComplete: () => void;
+  onBack: () => void;
 }
 
 interface ValidationError {
@@ -35,7 +37,7 @@ interface ValidationError {
   message: string;
 }
 
-export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
+export function DAOConfigStep({ onComplete, onBack }: DAOConfigStepProps) {
   const {
     setDAOConfig,
     daoConfig,
@@ -55,7 +57,7 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     quorum: 10,
     minGovProposalCreate: 100,
   });
-
+  const [allowRedeploy, setAllowRedeploy] = useState(false);
   const [errors, setErrors] = useState<ValidationError[]>([]);
 
   // Load existing config if available
@@ -172,7 +174,7 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
     if (validationErrors.length === 0) {
       // Clear deployment data if there was any existing deployment
       // since we're updating the config, any previous deployment is now invalid
-      if (daoTxHash || deployedDAO) {
+      if (allowRedeploy && (daoTxHash || deployedDAO)) {
         setDeployResults("", "", "");
         setDeployedDAO(null);
       }
@@ -191,8 +193,8 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
   };
 
   const isFormValid = errors.length === 0 && config.name.trim();
-
-  // Replace the old calculations:
+  const isAlreadyDeployed = !!(daoTxHash || deployedDAO);
+  const canProceed = isFormValid && (!isAlreadyDeployed || allowRedeploy);
   const minProposalTimeDisplay = formatDuration(config.minProposalTime);
   const maxProposalTimeDisplay = formatDuration(config.maxProposalTime);
 
@@ -216,16 +218,16 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
               <AccordionContent className="space-y-4">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-3">
-                    <div className="border-l-4 border-blue-500 pl-4">
-                      <h4 className="font-semibold text-blue-700">Threshold</h4>
+                    <div className="border-l-4 border-info-border pl-4">
+                      <h4 className="font-semibold text-info">Threshold</h4>
                       <p className="text-sm text-muted-foreground">
                         Percentage of votes needed for a proposal option to
                         pass. Higher = more consensus required.
                       </p>
                     </div>
 
-                    <div className="border-l-4 border-green-500 pl-4">
-                      <h4 className="font-semibold text-green-700">Quorum</h4>
+                    <div className="border-l-4 border-success-border pl-4">
+                      <h4 className="font-semibold text-success">Quorum</h4>
                       <p className="text-sm text-muted-foreground">
                         Minimum total votes required for any proposal to be
                         valid. Prevents decisions with low participation.
@@ -546,12 +548,57 @@ export function DAOConfigStep({ onComplete }: DAOConfigStepProps) {
               </Alert>
             )}
 
+            {/* DAO Already Deployed Warning */}
+            {isAlreadyDeployed && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="space-y-3">
+                    <p className="font-medium">DAO Already Deployed</p>
+                    <p className="text-sm">
+                      You have already deployed a DAO with the current
+                      configuration. Continuing will create a new DAO and lose
+                      track of your existing one within this deploy area. This
+                      will not delete the already deployed DAO and you can find
+                      it on the Browse page.
+                    </p>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="allowRedeploy"
+                        checked={allowRedeploy}
+                        onCheckedChange={(checked) =>
+                          setAllowRedeploy(checked === true)
+                        }
+                      />
+                      <label
+                        htmlFor="allowRedeploy"
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        I understand this will create a new DAO and I want to
+                        proceed
+                      </label>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex justify-between pt-4">
-              <Button type="button" variant="outline">
+              <Button onClick={onBack} variant="outline">
                 Back to Token Selection
               </Button>
-              <Button type="submit" disabled={!isFormValid}>
-                Continue to Deployment
+              <Button
+                type="submit"
+                disabled={!canProceed}
+                variant={
+                  isAlreadyDeployed && !allowRedeploy ? "secondary" : "default"
+                }
+              >
+                {isAlreadyDeployed
+                  ? allowRedeploy
+                    ? "Deploy New DAO"
+                    : "Already Deployed"
+                  : "Continue to Deployment"}
               </Button>
             </div>
           </form>

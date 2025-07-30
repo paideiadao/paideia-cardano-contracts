@@ -325,7 +325,7 @@ export default function ProposalPage() {
                       : "Active"}
                   </div>
                 )}
-                {/* NEW: Time remaining badge in header */}
+                {/* Time remaining badge */}
                 {isActive && !hasEnded && (
                   <div className="px-2 py-1 rounded-full border text-sm font-medium bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950 dark:text-orange-200 dark:border-orange-800">
                     <Clock className="h-3 w-3 inline mr-1" />
@@ -384,109 +384,106 @@ export default function ProposalPage() {
 
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
-          {/* UPDATED: Unified Voting Section */}
-          {connected && isActive && !hasEnded && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Voting
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {proposal.userVoteInfo?.hasVoted && !showVotingInterface ? (
-                  // Show current vote status with change vote button
-                  <div className="space-y-4">
-                    <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                          Your Current Vote
-                        </span>
-                        <span className="font-semibold text-green-600 dark:text-green-400">
-                          {proposal.userVoteInfo.votedAmount?.toLocaleString() ??
-                            "Unknown"}{" "}
-                          votes
-                        </span>
-                      </div>
-                      <p className="text-sm text-green-700 dark:text-green-300">
-                        Voted for:{" "}
+          {/* Voting Section */}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Your Vote
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {proposal.userVoteInfo?.hasVoted && !showVotingInterface ? (
+                // Show current vote status with change vote button
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                        Your Current Vote
+                      </span>
+                      <span className="font-semibold text-green-600 dark:text-green-400">
+                        {proposal.userVoteInfo.votedAmount?.toLocaleString() ??
+                          "Unknown"}{" "}
+                        votes
+                      </span>
+                    </div>
+                    <p className="text-sm text-green-700 dark:text-green-300">
+                      Voted for:{" "}
+                      {getOptionLabel(proposal.userVoteInfo.votedOption ?? 0)}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">
+                      Total Voting Power
+                    </span>
+                    <span className="font-medium">
+                      {proposal.userVoteInfo.votePower?.toLocaleString() ?? 0}{" "}
+                      tokens
+                    </span>
+                  </div>
+
+                  <Button
+                    onClick={() => setShowVotingInterface(true)}
+                    className="w-full"
+                    variant="outline"
+                  >
+                    Change Vote
+                  </Button>
+
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                      Changing your vote will completely replace your previous
+                      vote with your full voting power.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              ) : (
+                // Show voting interface
+                <div className="space-y-4">
+                  {proposal.userVoteInfo?.hasVoted && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">
+                        Currently voted for:{" "}
                         {getOptionLabel(proposal.userVoteInfo.votedOption ?? 0)}
-                      </p>
-                    </div>
-
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-muted-foreground">
-                        Total Voting Power
                       </span>
-                      <span className="font-medium">
-                        {proposal.userVoteInfo.votePower?.toLocaleString() ?? 0}{" "}
-                        tokens
-                      </span>
+                      <Button
+                        onClick={() => setShowVotingInterface(false)}
+                        variant="ghost"
+                        size="sm"
+                      >
+                        Cancel
+                      </Button>
                     </div>
+                  )}
 
-                    <Button
-                      onClick={() => setShowVotingInterface(true)}
-                      className="w-full"
-                      variant="outline"
-                    >
-                      Change Vote
-                    </Button>
-
-                    <Alert>
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription className="text-sm">
-                        Changing your vote will completely replace your previous
-                        vote with your full voting power.
-                      </AlertDescription>
-                    </Alert>
-                  </div>
-                ) : (
-                  // Show voting interface
-                  <div className="space-y-4">
-                    {proposal.userVoteInfo?.hasVoted && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">
-                          Currently voted for:{" "}
-                          {getOptionLabel(
-                            proposal.userVoteInfo.votedOption ?? 0
-                          )}
-                        </span>
-                        <Button
-                          onClick={() => setShowVotingInterface(false)}
-                          variant="ghost"
-                          size="sm"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    )}
-
-                    <VotingInterface
-                      proposal={proposal}
-                      daoPolicyId={daoPolicyId!}
-                      daoKey={daoKey!}
-                      onVoteSuccess={() => {
-                        fetchProposal();
-                        setShowVotingInterface(false);
-                      }}
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                  <VotingInterface
+                    proposal={proposal}
+                    daoPolicyId={daoPolicyId!}
+                    daoKey={daoKey!}
+                    onVoteSuccess={() => {
+                      fetchProposal();
+                      setShowVotingInterface(false);
+                    }}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Actions */}
-          {proposal.actions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Webhook className="h-5 w-5" />
-                  Proposal Actions
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {proposal.actions.map((action) => (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Webhook className="h-5 w-5" />
+                Proposal Actions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {proposal.actions.length > 0 ? (
+                proposal.actions.map((action) => (
                   <div
                     key={action.index}
                     className={`border rounded-lg p-4 ${
@@ -534,10 +531,12 @@ export default function ProposalPage() {
                       </div>
                     )}
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+                ))
+              ) : (
+                <>This proposal has no actions, it is a basic opinion vote. </>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <div className="space-y-6">
@@ -654,7 +653,7 @@ export default function ProposalPage() {
             </CardContent>
           </Card>
 
-          {/* UPDATED: Timeline with end time details */}
+          {/* Timeline with end time details */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

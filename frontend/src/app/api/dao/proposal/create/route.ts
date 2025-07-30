@@ -218,6 +218,7 @@ export async function POST(request: NextRequest) {
       unsignedTx: tx.toCbor(),
       proposalIdentifier,
       proposalName: proposal.name,
+      proposalPolicyId: proposalScriptRef.scriptHash,
     });
   } catch (error) {
     console.error("❌ Server-side proposal creation error:", error);

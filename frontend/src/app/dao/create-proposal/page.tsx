@@ -37,6 +37,7 @@ import Link from "next/link";
 import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import { formatDuration } from "@/lib/utils";
+import { useDaoContext } from "@/contexts/dao-context";
 
 interface ProposalTarget {
   address: string;
@@ -71,19 +72,19 @@ export default function CreateProposalPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
+  const { daoInfo, isLoading } = useDaoContext();
 
   const policyId = searchParams.get("policyId");
   const assetName = searchParams.get("assetName");
 
-  const [daoInfo, setDaoInfo] = useState<DAOInfo | null>(null);
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [creationState, setCreationState] = useState<CreationState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{
     txHash: string;
     proposalIdentifier: string;
+    proposalPolicyId: string;
   } | null>(null);
 
   const [proposal, setProposal] = useState<ProposalForm>({
@@ -100,15 +101,6 @@ export default function CreateProposalPage() {
     activationTime: null,
     targets: [{ address: "", assets: [] }],
   });
-
-  useEffect(() => {
-    if (policyId && assetName) {
-      loadDAOInfo();
-    } else {
-      setError("Missing DAO parameters");
-      setIsLoading(false);
-    }
-  }, [policyId, assetName]);
 
   useEffect(() => {
     if (connected && wallet && policyId && assetName) {
@@ -141,23 +133,6 @@ export default function CreateProposalPage() {
       }));
     }
   }, [daoInfo]);
-
-  const loadDAOInfo = async () => {
-    try {
-      const response = await fetch(
-        `/api/dao/info?policyId=${encodeURIComponent(
-          policyId!
-        )}&assetName=${encodeURIComponent(assetName!)}`
-      );
-      if (!response.ok) throw new Error("Failed to fetch DAO info");
-      const data = await response.json();
-      setDaoInfo(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load DAO");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const checkRegistrationStatus = async () => {
     if (!connected || !wallet || !policyId || !assetName) return;
@@ -430,7 +405,7 @@ export default function CreateProposalPage() {
         throw new Error(errorData.error ?? "Failed to build transaction");
       }
 
-      const { unsignedTx, proposalIdentifier, proposalName } =
+      const { unsignedTx, proposalIdentifier, proposalName, proposalPolicyId } =
         await response.json();
 
       setCreationState("signing");
@@ -446,6 +421,7 @@ export default function CreateProposalPage() {
       setSuccess({
         txHash,
         proposalIdentifier,
+        proposalPolicyId,
       });
       setCreationState("idle");
     } catch (err: any) {
@@ -534,7 +510,6 @@ export default function CreateProposalPage() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to {daoInfo?.name}
         </Link>
-
         <Alert>
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>
@@ -549,7 +524,6 @@ export default function CreateProposalPage() {
             </div>
           </AlertDescription>
         </Alert>
-
         <Card>
           <CardHeader>
             <CardTitle>What's Next?</CardTitle>
@@ -569,7 +543,6 @@ export default function CreateProposalPage() {
                   </p>
                 </div>
               </div>
-
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
                   <span className="text-green-600 dark:text-green-300 text-sm font-bold">
@@ -583,7 +556,6 @@ export default function CreateProposalPage() {
                   </p>
                 </div>
               </div>
-
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center">
                   <span className="text-purple-600 dark:text-purple-300 text-sm font-bold">
@@ -600,15 +572,29 @@ export default function CreateProposalPage() {
                 </div>
               </div>
             </div>
-
-            <Button
-              onClick={() =>
-                router.push(`/dao?policyId=${policyId}&assetName=${assetName}`)
-              }
-              className="w-full"
-            >
-              Return to DAO
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() =>
+                  router.push(
+                    `/dao/proposal?proposalPolicyId=${success.proposalPolicyId}&proposalAssetName=${success.proposalIdentifier}&daoPolicyId=${policyId}&daoKey=${assetName}`
+                  )
+                }
+                className="flex-1"
+              >
+                View Your Proposal
+              </Button>
+              <Button
+                onClick={() =>
+                  router.push(
+                    `/dao?policyId=${policyId}&assetName=${assetName}`
+                  )
+                }
+                variant="outline"
+                className="flex-1"
+              >
+                Return to DAO
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
