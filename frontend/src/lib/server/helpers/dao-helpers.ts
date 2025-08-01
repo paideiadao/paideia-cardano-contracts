@@ -163,14 +163,17 @@ export async function getDaoUtxo(
 
 export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
   const cachedDao = await prisma.dao.findUnique({
-    where: { policyId: daoPolicyId },
+    where: {
+      policyId_daoKey: {
+        policyId: daoPolicyId,
+        daoKey: daoKey,
+      },
+    },
     include: { scripts: true },
   });
 
   if (cachedDao) {
-    // Reconstruct the full UTXO
     const utxo = reconstructUtxoFromDb(cachedDao);
-
     return {
       name: cachedDao.name,
       governance_token: cachedDao.governanceToken,
@@ -188,7 +191,6 @@ export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
     };
   }
 
-  // Fallback to Maestro
   const daoUtxo = await getDaoUtxo(daoPolicyId, daoKey);
   if (!daoUtxo) {
     throw new Error(
@@ -199,11 +201,14 @@ export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
   const datum = extractInlineDatum(daoUtxo);
   const parsedDao = parseDAODatum(datum);
 
-  // Save complete UTXO data
   await prisma.dao.upsert({
-    where: { policyId: daoPolicyId },
+    where: {
+      policyId_daoKey: {
+        policyId: daoPolicyId,
+        daoKey: daoKey,
+      },
+    },
     update: {
-      // Update fields if needed when DAO data changes
       name: parsedDao.name,
       governanceToken: parsedDao.governance_token,
       threshold: parsedDao.threshold,
@@ -217,10 +222,11 @@ export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
       utxoIndex: Number(daoUtxo.input().index()),
       utxoAddress: daoUtxo.output().address().toBech32(),
       utxoValue: serializeValue(daoUtxo.output().amount()),
-      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor(),
+      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor() ?? null,
     },
     create: {
       policyId: daoPolicyId,
+      daoKey: daoKey,
       name: parsedDao.name,
       governanceToken: parsedDao.governance_token,
       threshold: parsedDao.threshold,
@@ -239,7 +245,7 @@ export async function fetchDAOInfo(daoPolicyId: string, daoKey: string) {
       utxoIndex: Number(daoUtxo.input().index()),
       utxoAddress: daoUtxo.output().address().toBech32(),
       utxoValue: serializeValue(daoUtxo.output().amount()),
-      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor(),
+      utxoDatum: daoUtxo.output().datum()?.asInlineData()?.toCbor() ?? null,
     },
   });
 

@@ -153,8 +153,8 @@ export function TreasuryFundingStep({ onBack }: TreasuryFundingStepProps) {
             Fund DAO Treasury
           </CardTitle>
           <CardDescription>
-            Send assets to your DAO's treasury. Anyone can fund the treasury by
-            sending to this address.
+            Send assets to your DAO&apos;s treasury. Anyone can fund the
+            treasury by sending to this address.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

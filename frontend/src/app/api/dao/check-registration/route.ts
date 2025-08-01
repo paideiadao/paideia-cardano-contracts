@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Core } from "@blaze-cardano/sdk";
-import { blazeMaestroProvider } from "@/lib/server/blaze";
 import { getScriptPolicyId } from "@/lib/server/helpers/script-helpers";
 import { checkVoteUtxo } from "@/lib/server/helpers/vote-helpers";
 import { getCachedUtxos } from "@/lib/server/helpers/utxo-cache";

@@ -15,7 +15,6 @@ import {
   addressFromScript,
   createParameterizedScript,
   getCurrentSlot,
-  getScriptPolicyId,
 } from "@/lib/server/helpers/script-helpers";
 import {
   AssetId,
@@ -73,22 +72,6 @@ interface SeedUTXOInfo {
   }[];
 }
 
-interface BuildProposalParams {
-  seedUtxo: Core.TransactionUnspentOutput;
-  daoInfo: ExtendedDAOInfo;
-  userVoteInfo: UserVoteInfo;
-  proposal: ProposalData;
-  action?: ActionData;
-  votePolicyId: string;
-  sendAddress: Core.Address;
-  seedUtxoInfo: SeedUTXOInfo;
-}
-
-interface TokenGroup {
-  name: string;
-  amount: bigint;
-}
-
 type TransactionBuilder = ReturnType<Blaze<any, any>["newTransaction"]>;
 
 export async function POST(request: NextRequest) {
@@ -98,7 +81,7 @@ export async function POST(request: NextRequest) {
       daoKey,
       walletAddress,
       collateral,
-      changeAddress,
+      // changeAddress,
       proposal,
       action,
     }: CreateProposalRequest = await request.json();

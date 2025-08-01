@@ -340,7 +340,7 @@ export default function RegisterPage() {
           <CardHeader>
             <CardTitle>Your Voting Power</CardTitle>
             <CardDescription>
-              You've successfully registered{" "}
+              You&apos;ve successfully registered{" "}
               {registrationAmount.toLocaleString()} governance tokens
             </CardDescription>
           </CardHeader>
@@ -395,18 +395,18 @@ export default function RegisterPage() {
               <AccordionTrigger>What does registration mean?</AccordionTrigger>
               <AccordionContent className="space-y-4">
                 <div className="space-y-3">
-                  <div className="border-l-4 border-blue-500 pl-4">
-                    <h4 className="font-semibold text-blue-700">
+                  <div className="border-l-4 border-primary pl-4">
+                    <h4 className="font-semibold text-primary">
                       Lock Governance Tokens
                     </h4>
                     <p className="text-sm text-muted-foreground">
-                      Your tokens are locked in a smart contract to prove your
-                      commitment to the DAO. This gives you voting power.
+                      Your tokens are locked in a smart contract. This gives you
+                      voting power.
                     </p>
                   </div>
 
-                  <div className="border-l-4 border-green-500 pl-4">
-                    <h4 className="font-semibold text-green-700">
+                  <div className="border-l-4 border-secondary pl-4">
+                    <h4 className="font-semibold text-secondary">
                       Receive Vote NFT
                     </h4>
                     <p className="text-sm text-muted-foreground">
@@ -415,13 +415,13 @@ export default function RegisterPage() {
                     </p>
                   </div>
 
-                  <div className="border-l-4 border-purple-500 pl-4">
-                    <h4 className="font-semibold text-purple-700">
-                      Unlock Anytime*
+                  <div className="border-l-4 border-warning pl-4">
+                    <h4 className="font-semibold text-warning">
+                      Unlock Anytime
                     </h4>
                     <p className="text-sm text-muted-foreground">
-                      You can unregister and get your tokens back anytime you're
-                      not actively voting on proposals.
+                      You can unregister and get your tokens back anytime
+                      you&apos;re not actively voting on proposals.
                     </p>
                   </div>
                 </div>
@@ -463,19 +463,13 @@ export default function RegisterPage() {
                   You can unregister and unlock your tokens when:
                 </p>
                 <ul className="text-sm text-muted-foreground space-y-1 ml-4">
-                  <li>• You're not actively voting on any proposals</li>
+                  <li>• You&apos;re not actively voting on any proposals</li>
                   <li>
-                    • All your previous votes have been "cleaned up" (happens
-                    automatically after proposals end)
+                    • All your previous votes have been &quot;cleaned up&quot;
+                    (happens automatically when proposals end and are evaluated)
                   </li>
                   <li>• You no longer want to participate in DAO governance</li>
                 </ul>
-                <div className="mt-3 p-3 bg-orange-50 dark:bg-orange-950/30 rounded border">
-                  <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
-                    💡 Pro tip: You can register more tokens later if you want
-                    to increase your voting power.
-                  </p>
-                </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
@@ -565,8 +559,8 @@ export default function RegisterPage() {
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription>
-                  You don't have any governance tokens. You need to acquire some
-                  before registering for this DAO.
+                  You don&apos;t have any governance tokens. You need to acquire
+                  some before registering for this DAO.
                 </AlertDescription>
               </Alert>
             )}

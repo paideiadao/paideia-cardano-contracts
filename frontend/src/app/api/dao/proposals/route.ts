@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
-import { cborToScript } from "@blaze-cardano/uplc";
 import plutusJson from "@/lib/scripts/plutus.json";
 import {
   addressFromScript,

@@ -87,7 +87,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
 
     const actionDatum = parseActionDatum(
-      actionUtxo.output().datum()?.asInlineData()!
+      actionUtxo.output().datum()!.asInlineData()!
     );
     if (!actionDatum) {
       throw new ActionExecutionError(
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const proposalDatum = parseProposalDatum(
-      proposalUtxo.output().datum()?.asInlineData()!,
+      proposalUtxo.output().datum()!.asInlineData()!,
       daoInfo
     );
     if (!proposalDatum) {
@@ -553,7 +553,7 @@ function selectTreasuryUtxos(
     targets.reduce((sum, target) => sum + target.coins, 0)
   );
 
-  let selectedTreasuryUtxos: Core.TransactionUnspentOutput[] = [];
+  const selectedTreasuryUtxos: Core.TransactionUnspentOutput[] = [];
   let totalAvailable = 0n;
 
   for (const utxo of treasuryUtxos) {

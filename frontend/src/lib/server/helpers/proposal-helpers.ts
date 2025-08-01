@@ -65,56 +65,44 @@ export interface ParsedActionDatum {
 }
 
 export async function getEndedProposalUtxos(
-  whitelistedProposals: string[],
+  proposalPolicyIds: string[],
   receiptAssetNames: string[],
   daoInfo: ExtendedDAOInfo
 ) {
   const proposalUtxos: Core.TransactionUnspentOutput[] = [];
 
-  for (const proposalPolicyId of whitelistedProposals) {
-    try {
-      const proposalValidator = plutusJson.validators.find(
-        (v) => v.title === "proposal.proposal.spend"
-      );
+  // Get the correct parameterized proposal script for this DAO
+  const votePolicyId = await getVotePolicyId(daoInfo.policyId, daoInfo.key);
+  const proposalScript = createParameterizedScript("proposal.proposal.spend", [
+    daoInfo.policyId,
+    daoInfo.key,
+    votePolicyId,
+  ]);
+  const proposalScriptAddress = addressFromScript(proposalScript);
 
-      if (!proposalValidator) {
-        continue;
-      }
+  const utxos = await blazeMaestroProvider.getUnspentOutputs(
+    proposalScriptAddress
+  );
 
-      const proposalScript = cborToScript(
-        proposalValidator.compiledCode,
-        "PlutusV3"
-      );
-      const proposalScriptAddress = addressFromScript(proposalScript);
+  for (const utxo of utxos) {
+    const value = utxo.output().amount().toCore();
+    if (value.assets) {
+      for (const [assetId, quantity] of value.assets) {
+        const policyId = Core.AssetId.getPolicyId(assetId);
+        const assetName = Core.AssetId.getAssetName(assetId);
 
-      const utxos = await blazeMaestroProvider.getUnspentOutputs(
-        proposalScriptAddress
-      );
-
-      for (const utxo of utxos) {
-        const value = utxo.output().amount().toCore();
-        if (value.assets) {
-          for (const [assetId, quantity] of value.assets) {
-            const policyId = Core.AssetId.getPolicyId(assetId);
-
-            if (policyId === proposalPolicyId && quantity === 1n) {
-              const datum = utxo.output().datum()?.asInlineData();
-              if (datum) {
-                const proposalData = parseProposalDatum(datum, daoInfo);
-                if (proposalData?.status !== "Active") {
-                  proposalUtxos.push(utxo);
-                }
-              }
+        // Check if this UTXO contains a proposal from one of our target policies
+        if (proposalPolicyIds.includes(policyId) && quantity === 1n) {
+          const datum = utxo.output().datum()?.asInlineData();
+          if (datum) {
+            const proposalData = parseProposalDatum(datum, daoInfo);
+            // Only include if proposal is actually ended (not Active)
+            if (proposalData && proposalData.status !== "Active") {
+              proposalUtxos.push(utxo);
             }
           }
         }
       }
-    } catch (error) {
-      console.error(
-        `Error fetching proposals for policy ${proposalPolicyId}:`,
-        error
-      );
-      continue;
     }
   }
 

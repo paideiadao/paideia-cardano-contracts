@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const maestroNetwork = network === "mainnet" ? "mainnet" : "preview";
     const burnAddressBech32 = burnAddress.toBech32();
 
-    let allUtxos: MaestroUtxo[] = [];
+    const allUtxos: MaestroUtxo[] = [];
     let nextCursor: string | undefined;
 
     // Fetch UTXOs from burn address (scripts deployed in last few months)

@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       parameters,
       walletAddress,
       collateral,
-      changeAddress,
+      // changeAddress,
       scriptIndex,
       totalScripts,
     }: DeployScriptRequest = await request.json();

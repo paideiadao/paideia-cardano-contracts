@@ -14,7 +14,8 @@ datasource db {
 }
 
 model Dao {
-  policyId      String   @id
+  policyId      String
+  daoKey        String
   name          String
   governanceToken String
   threshold     Int
@@ -37,6 +38,7 @@ model Dao {
   proposals     Proposal[]
   scripts       DeployedScript[]
  
+  @@id([policyId, daoKey])  // Composite primary key
   @@index([network])
   @@index([name])
   @@map("daos")
@@ -53,20 +55,20 @@ model DeployedScript {
   deployedAt    DateTime @default(now())
   updatedAt     DateTime @updatedAt
   
-  // Foreign key to DAO
+    // Foreign key to DAO - need both fields for composite key
   daoPolicyId   String?
-  dao           Dao?     @relation(fields: [daoPolicyId], references: [policyId])
+  daoDaoKey     String?
+  dao           Dao?     @relation(fields: [daoPolicyId, daoDaoKey], references: [policyId, daoKey])
   
   @@index([name])
   @@index([network])
   @@index([txHash, outputIndex])
-  @@index([daoPolicyId])
+  @@index([daoPolicyId, daoDaoKey])
   @@map("deployed_scripts")
 }
 
 model Proposal {
   id            String   @id
-  daoId         String
   name          String
   description   String
   endTime       DateTime
@@ -77,9 +79,12 @@ model Proposal {
   network       String
   createdAt     DateTime @default(now())
   
-  dao           Dao      @relation(fields: [daoId], references: [policyId])
-  
-  @@index([daoId])
+    // Foreign key to DAO - need both fields for composite key
+  daoPolicyId   String?
+  daoDaoKey     String?
+  dao           Dao?     @relation(fields: [daoPolicyId, daoDaoKey], references: [policyId, daoKey])
+ 
+   @@index([daoPolicyId, daoDaoKey])
   @@index([status])
   @@index([endTime])
   @@map("proposals")

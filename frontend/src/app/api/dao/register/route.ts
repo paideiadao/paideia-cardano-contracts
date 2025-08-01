@@ -93,8 +93,8 @@ export async function POST(request: NextRequest) {
       await analyzeUserUTxOs(
         userUtxos,
         govPolicyId,
-        govAssetName,
-        BigInt(governanceTokenAmount)
+        govAssetName
+        // BigInt(governanceTokenAmount)
       );
 
     if (totalAvailable < BigInt(governanceTokenAmount)) {
@@ -400,8 +400,8 @@ interface GovernanceTokenUTxO {
 async function analyzeUserUTxOs(
   utxos: Core.TransactionUnspentOutput[],
   govPolicyId: string,
-  govAssetName: string,
-  requiredAmount: bigint
+  govAssetName: string
+  // requiredAmount: bigint
 ): Promise<{
   governanceUtxos: GovernanceTokenUTxO[];
   totalAvailable: bigint;

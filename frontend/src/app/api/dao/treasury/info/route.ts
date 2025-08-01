@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Core } from "@blaze-cardano/sdk";
 import { blazeMaestroProvider } from "@/lib/server/blaze";
 import plutusJson from "@/lib/scripts/plutus.json";
 import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
-import {
-  addressFromScript,
-  getNetworkId,
-} from "@/lib/server/helpers/script-helpers";
+import { addressFromScript } from "@/lib/server/helpers/script-helpers";
 
 export async function POST(request: NextRequest) {
   try {
@@ -78,8 +74,8 @@ export async function POST(request: NextRequest) {
         unit,
         quantity: quantity.toString(),
       }));
-    } catch (error) {
-      console.log("Treasury has no UTXOs yet (empty treasury)");
+    } catch {
+      console.error("Treasury has no UTXOs yet (empty treasury)");
       assets = [];
     }
 

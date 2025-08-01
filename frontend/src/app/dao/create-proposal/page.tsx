@@ -34,7 +34,6 @@ import {
   Clock,
 } from "lucide-react";
 import Link from "next/link";
-import { DAOInfo } from "@/app/api/dao/info/route";
 import { RegistrationStatus } from "@/app/api/dao/check-registration/route";
 import { formatDuration } from "@/lib/utils";
 import { useDaoContext } from "@/contexts/dao-context";
@@ -526,7 +525,7 @@ export default function CreateProposalPage() {
         </Alert>
         <Card>
           <CardHeader>
-            <CardTitle>What's Next?</CardTitle>
+            <CardTitle>What&apos;s Next?</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3">
@@ -734,8 +733,8 @@ export default function CreateProposalPage() {
                       Treasury Action Details
                     </CardTitle>
                     <CardDescription>
-                      This action will be available for execution if the "Yes"
-                      vote wins
+                      This action will be available for execution if the
+                      &quot;Yes&quot; vote wins
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -954,8 +953,8 @@ export default function CreateProposalPage() {
 
                               {target.assets.length === 0 && (
                                 <p className="text-sm text-muted-foreground">
-                                  Click "Add Asset" to specify what to send to
-                                  this recipient
+                                  Click &quot;Add Asset&quot; to specify what to
+                                  send to this recipient
                                 </p>
                               )}
                             </div>

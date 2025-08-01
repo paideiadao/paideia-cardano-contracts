@@ -210,7 +210,7 @@ async function getTreasuryInfo(daoPolicyId: string, daoKey: string) {
       const lovelace = assetMap.get("lovelace") ?? 0n;
       totalValueAda = (Number(lovelace) / 1_000_000).toFixed(2);
     } catch (error) {
-      console.log("Treasury empty or error fetching assets");
+      console.error("Treasury empty or error fetching assets: ", error);
     }
 
     return {

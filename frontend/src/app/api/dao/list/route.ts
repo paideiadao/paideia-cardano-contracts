@@ -69,7 +69,7 @@ export async function GET() {
             console.warn("DAO UTXO has non-inline datum, skipping");
             continue;
           }
-        } catch (error) {
+        } catch {
           console.warn("Failed to extract inline datum, skipping");
           continue;
         }

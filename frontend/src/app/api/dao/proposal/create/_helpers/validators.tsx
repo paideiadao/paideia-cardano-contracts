@@ -1,6 +1,9 @@
 import { Core } from "@blaze-cardano/sdk";
-import { ActionData, ProposalData } from "../route";
 import { FullDAODatum } from "@/lib/server/helpers/dao-helpers";
+import {
+  ActionData,
+  ProposalData,
+} from "@/lib/server/helpers/proposal-helpers";
 
 export function validateProposalData(proposal: ProposalData): void {
   if (!proposal.name?.trim()) {

@@ -4,6 +4,23 @@ import { UnregisterAnalysis } from "@/app/api/dao/unregister/analysis/route";
 import { useWallet } from "@meshsdk/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  RefreshCw,
+  ArrowLeft,
+  Users,
+  Vote,
+  Clock,
+  Shield,
+  Coins,
+} from "lucide-react";
+import Link from "next/link";
 
 type RegistrationState =
   | "idle"
@@ -31,7 +48,6 @@ export default function UnregisterPage() {
     voteNftAssetName: string;
   } | null>(null);
 
-  // Load analysis on component mount
   useEffect(() => {
     loadAnalysis();
   }, [policyId, assetName, connected]);
@@ -127,8 +143,6 @@ export default function UnregisterPage() {
       });
 
       setRegistrationState("idle");
-
-      // Refresh analysis after successful unregistration
       setTimeout(() => loadAnalysis(), 2000);
     } catch (error: any) {
       console.error("Unregistration failed:", error);
@@ -153,71 +167,6 @@ export default function UnregisterPage() {
     }
   };
 
-  const renderAnalysisInfo = () => {
-    if (!analysis) return null;
-
-    return (
-      <div className="space-y-4">
-        {/* Registration Status */}
-        <div className="p-4 border rounded-lg">
-          <h3 className="font-semibold mb-2">Registration Status</h3>
-          {analysis.voteUtxo ? (
-            <div>
-              <p className="text-green-600 mb-2">✓ Currently registered</p>
-              <p className="text-sm text-gray-600">
-                Locked tokens: {analysis.voteUtxo.lockedGovernanceTokens}
-              </p>
-              <p className="text-sm text-gray-600">
-                Vote NFT: {analysis.voteUtxo.voteNftAssetName}
-              </p>
-            </div>
-          ) : (
-            <p className="text-gray-600">Not currently registered</p>
-          )}
-        </div>
-
-        {/* Active Votes */}
-        {analysis.activeVotes.length > 0 && (
-          <div className="p-4 border rounded-lg">
-            <h3 className="font-semibold mb-2 text-orange-600">
-              Active Votes ({analysis.activeVotes.length})
-            </h3>
-            <p className="text-sm text-gray-600 mb-2">
-              You have votes in progress that may prevent unregistration
-            </p>
-            {analysis.activeVotes.map((vote, index) => (
-              <div
-                key={index}
-                className="text-sm border-l-2 border-orange-200 pl-2 mb-1"
-              >
-                {vote.proposalName || `Vote ${vote.proposalId}`}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Ended Votes */}
-        {analysis.endedVotes.length > 0 && (
-          <div className="p-4 border rounded-lg">
-            <h3 className="font-semibold mb-2">
-              Completed Votes ({analysis.endedVotes.length})
-            </h3>
-            <p className="text-sm text-gray-600">
-              These will be processed during unregistration
-            </p>
-          </div>
-        )}
-
-        {/* Blocking Message */}
-        {analysis.blockingMessage && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-700">{analysis.blockingMessage}</p>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const getButtonText = () => {
     switch (registrationState) {
       case "analyzing":
@@ -233,81 +182,296 @@ export default function UnregisterPage() {
     }
   };
 
-  if (registrationState === "analyzing") {
+  const isLoading = registrationState === "analyzing";
+  const isProcessing =
+    registrationState !== "idle" && registrationState !== "analyzing";
+
+  if (isLoading) {
     return (
-      <div className="p-6 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p>Analyzing registration status...</p>
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Analyzing registration status...</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">DAO Unregistration</h2>
-        <button
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Back Navigation */}
+      <Link
+        href={`/dao?policyId=${policyId}&assetName=${assetName}`}
+        className="inline-flex items-center text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        Back to DAO
+      </Link>
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">DAO Unregistration</h1>
+          <p className="text-muted-foreground mt-2">
+            Withdraw your governance tokens and leave the DAO
+          </p>
+        </div>
+        <Button
+          variant="outline"
           onClick={loadAnalysis}
-          disabled={registrationState !== "idle"}
-          className="text-blue-600 hover:text-blue-800 text-sm"
+          disabled={isProcessing}
+          className="flex items-center gap-2"
         >
+          <RefreshCw
+            className={`h-4 w-4 ${isProcessing ? "animate-spin" : ""}`}
+          />
           Refresh
-        </button>
+        </Button>
       </div>
 
+      {/* Error Alert */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-700">{error}</p>
-          <button
-            onClick={() => setError(null)}
-            className="text-red-600 hover:text-red-800 text-sm mt-2"
-          >
-            Dismiss
-          </button>
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setError(null)}
+              className="h-auto p-1 text-xs"
+            >
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
+      {/* Success Alert */}
       {success && (
-        <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-green-700 font-semibold">
-            ✓ Unregistration successful!
-          </p>
-          <p className="text-sm text-green-600 mt-1">
-            Transaction: {success.txHash.slice(0, 20)}...
-          </p>
-          <button
-            onClick={() => setSuccess(null)}
-            className="text-green-600 hover:text-green-800 text-sm mt-2"
-          >
-            Dismiss
-          </button>
+        <Alert>
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Unregistration successful!</p>
+                <p className="text-sm mt-1">
+                  Transaction: {success.txHash.slice(0, 20)}...
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSuccess(null)}
+                className="h-auto p-1 text-xs"
+              >
+                Dismiss
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Registration Status */}
+      {analysis && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Registration Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {analysis.voteUtxo ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-success text-success-foreground">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Currently Registered
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                      <Coins className="h-4 w-4 text-success" />
+                      <div>
+                        <p className="text-sm font-medium">Locked Tokens</p>
+                        <p className="text-lg font-bold text-success">
+                          {analysis.voteUtxo.lockedGovernanceTokens}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                      <Shield className="h-4 w-4 text-info" />
+                      <div>
+                        <p className="text-sm font-medium">Vote NFT</p>
+                        <p className="text-xs font-mono text-muted-foreground break-all">
+                          {analysis.voteUtxo.voteNftAssetName}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <Badge variant="secondary">Not Currently Registered</Badge>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    You are not currently registered with this DAO
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Voting Activity */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Vote className="h-5 w-5" />
+                Voting Activity
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Active Votes */}
+              {analysis.activeVotes.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="secondary"
+                      className="bg-warning text-warning-foreground"
+                    >
+                      <Clock className="h-3 w-3 mr-1" />
+                      {analysis.activeVotes.length} Active Vote
+                      {analysis.activeVotes.length !== 1 ? "s" : ""}
+                    </Badge>
+                  </div>
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                      You have votes in progress that may prevent unregistration
+                    </AlertDescription>
+                  </Alert>
+                  <div className="space-y-2">
+                    {analysis.activeVotes.map((vote, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 p-2 border-l-2 border-warning bg-warning/5 rounded-r"
+                      >
+                        <Clock className="h-4 w-4 text-warning" />
+                        <span className="text-sm">
+                          {vote.proposalName ?? `Vote ${vote.proposalId}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-success">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-sm">No active votes</span>
+                </div>
+              )}
+
+              {/* Completed Votes */}
+              {analysis.endedVotes.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4 text-success" />
+                    <span className="text-sm font-medium text-success">
+                      {analysis.endedVotes.length} Completed Vote
+                      {analysis.endedVotes.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    These will be processed during unregistration
+                  </p>
+                </div>
+              )}
+
+              {analysis.activeVotes.length === 0 &&
+                analysis.endedVotes.length === 0 && (
+                  <div className="text-center py-4">
+                    <Vote className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      No voting history
+                    </p>
+                  </div>
+                )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      {analysis && renderAnalysisInfo()}
-
-      {analysis && analysis.voteUtxo && (
-        <div className="flex justify-center pt-4">
-          <button
-            onClick={handleUnregister}
-            disabled={!analysis.canUnregister || registrationState !== "idle"}
-            className={`px-6 py-3 rounded-lg font-semibold ${
-              analysis.canUnregister && registrationState === "idle"
-                ? "bg-red-600 hover:bg-red-700 text-white"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
-            }`}
-          >
-            {getButtonText()}
-          </button>
-        </div>
+      {/* Blocking Message */}
+      {analysis?.blockingMessage && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{analysis.blockingMessage}</AlertDescription>
+        </Alert>
       )}
 
-      {analysis && !analysis.voteUtxo && (
-        <div className="text-center p-4 bg-gray-50 rounded-lg">
-          <p className="text-gray-600">
-            You are not currently registered with this DAO
-          </p>
-        </div>
+      {/* Action Card */}
+      {analysis && (
+        <Card>
+          <CardContent className="pt-6">
+            {analysis.voteUtxo ? (
+              <div className="text-center space-y-4">
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">
+                    Ready to Unregister?
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    This will withdraw your{" "}
+                    {analysis.voteUtxo.lockedGovernanceTokens} governance tokens
+                    and remove your voting rights from this DAO.
+                  </p>
+                </div>
+
+                <Button
+                  onClick={handleUnregister}
+                  disabled={!analysis.canUnregister || isProcessing}
+                  variant={analysis.canUnregister ? "destructive" : "secondary"}
+                  size="lg"
+                  className="min-w-48"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {getButtonText()}
+                    </>
+                  ) : (
+                    getButtonText()
+                  )}
+                </Button>
+
+                {!analysis.canUnregister && (
+                  <p className="text-xs text-muted-foreground">
+                    Complete or withdraw from active votes to enable
+                    unregistration
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Not Registered</h3>
+                <p className="text-muted-foreground mb-4">
+                  You are not currently registered with this DAO
+                </p>
+                <Button variant="outline" asChild>
+                  <Link
+                    href={`/dao/register?policyId=${policyId}&assetName=${assetName}`}
+                  >
+                    Register for Governance
+                  </Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );

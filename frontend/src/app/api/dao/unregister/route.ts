@@ -209,13 +209,23 @@ async function buildUnregisterTransaction(
     daoInfo,
   } = params;
 
-  const emptyVoteSpendRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(3n, new Core.PlutusList())
-  );
+  const voteSpendRedeemer =
+    endedVoteReceipts.length === 0
+      ? Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(3n, new Core.PlutusList())
+        ) // EmptyVote
+      : Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(2n, new Core.PlutusList())
+        ); // CleanReceipts
 
-  const emptyVoteMintRedeemer = Core.PlutusData.newConstrPlutusData(
-    new Core.ConstrPlutusData(3n, new Core.PlutusList())
-  );
+  const voteMintRedeemer =
+    endedVoteReceipts.length === 0
+      ? Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(3n, new Core.PlutusList())
+        ) // EmptyVote
+      : Core.PlutusData.newConstrPlutusData(
+          new Core.ConstrPlutusData(2n, new Core.PlutusList())
+        ); // CleanReceipts
 
   const cleanReceiptsRedeemer = Core.PlutusData.newConstrPlutusData(
     new Core.ConstrPlutusData(2n, new Core.PlutusList())
@@ -257,44 +267,47 @@ async function buildUnregisterTransaction(
   let txBuilder = blaze
     .newTransaction()
     .addInput(voteNftUtxo)
-    .addInput(voteUtxo, emptyVoteSpendRedeemer)
+    .addInput(voteUtxo, voteSpendRedeemer)
     .provideScript(voteScript)
-    .addMint(Core.PolicyId(votePolicyId), voteBurnMap, emptyVoteMintRedeemer);
+    .addMint(Core.PolicyId(votePolicyId), voteBurnMap, voteMintRedeemer);
 
   const daoUtxo = await getDaoUtxo(daoInfo.policyId, daoInfo.key);
   if (daoUtxo) {
     txBuilder = txBuilder.addReferenceInput(daoUtxo);
   }
 
-  // Add proposal policy burns and reference inputs
-  if (receiptsByPolicy.size > 0) {
-    const proposalUtxos = await getEndedProposalUtxos(
-      Array.from(receiptsByPolicy.keys()),
-      endedVoteReceipts.map((r) => r.assetName),
-      daoInfo
-    );
+  if (endedVoteReceipts.length === 0) {
+    // No receipts to clean, just do the basic unregister
+    return txBuilder.payAssets(receiveAddress, returnValue).complete();
+  }
 
-    for (const proposalUtxo of proposalUtxos) {
-      txBuilder = txBuilder.addReferenceInput(proposalUtxo);
-    }
+  // Only add proposal policy burns and reference inputs if we actually have receipts to clean
+  const proposalUtxos = await getEndedProposalUtxos(
+    Array.from(receiptsByPolicy.keys()),
+    endedVoteReceipts.map((r) => r.assetName),
+    daoInfo
+  );
 
-    // Add burns for each proposal policy
-    for (const [proposalPolicyId, receipts] of receiptsByPolicy) {
-      const proposalBurnMap: Map<Core.AssetName, bigint> = new Map();
+  for (const proposalUtxo of proposalUtxos) {
+    txBuilder = txBuilder.addReferenceInput(proposalUtxo);
+  }
 
-      for (const receipt of receipts) {
-        proposalBurnMap.set(
-          Core.AssetName(receipt.assetName),
-          BigInt(-receipt.amount)
-        );
-      }
+  // Add burns for each proposal policy
+  for (const [proposalPolicyId, receipts] of receiptsByPolicy) {
+    const proposalBurnMap: Map<Core.AssetName, bigint> = new Map();
 
-      txBuilder = txBuilder.addMint(
-        Core.PolicyId(proposalPolicyId),
-        proposalBurnMap,
-        cleanReceiptsRedeemer
+    for (const receipt of receipts) {
+      proposalBurnMap.set(
+        Core.AssetName(receipt.assetName),
+        BigInt(-receipt.amount)
       );
     }
+
+    txBuilder = txBuilder.addMint(
+      Core.PolicyId(proposalPolicyId),
+      proposalBurnMap,
+      cleanReceiptsRedeemer
+    );
   }
 
   return txBuilder.payAssets(receiveAddress, returnValue).complete();

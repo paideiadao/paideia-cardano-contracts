@@ -41,8 +41,8 @@ export async function POST(request: NextRequest) {
       deployedScripts,
       walletAddress,
       collateral,
-      changeAddress,
-    }: FinalizeDAORequest = await request.json();
+    }: // changeAddress,
+    FinalizeDAORequest = await request.json();
 
     if (!collateral?.length) {
       throw new Error("No collateral available");

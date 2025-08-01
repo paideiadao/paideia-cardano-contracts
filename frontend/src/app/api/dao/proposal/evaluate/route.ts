@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
       proposalAssetName,
       walletAddress,
       collateral,
-      changeAddress,
-    }: EvaluateProposalRequest = await request.json();
+    }: // changeAddress,
+    EvaluateProposalRequest = await request.json();
 
     if (!collateral?.length) {
       throw new Error("No collateral available, please set it in your wallet");
@@ -234,7 +234,7 @@ async function buildEvaluationTransaction(
 
   // Create updated proposal datum with new status
   const updatedDatum = createUpdatedProposalDatum(
-    proposalUtxo.output().datum()?.asInlineData()!,
+    proposalUtxo.output().datum()!.asInlineData()!,
     newStatus
   );
 

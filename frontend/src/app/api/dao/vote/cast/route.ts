@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
       votePower,
       walletAddress,
       collateral,
-      changeAddress,
-    }: CastVoteRequest = await request.json();
+    }: // changeAddress,
+    CastVoteRequest = await request.json();
 
     if (!collateral?.length) {
       throw new Error("No collateral available, please set it in your wallet");
@@ -243,6 +243,7 @@ function parseProposalDatum(datum: Core.PlutusData): {
       identifier,
     };
   } catch (error) {
+    console.error("parseProposalDatum error: ", error);
     return null;
   }
 }
@@ -359,7 +360,7 @@ async function buildVoteTransaction(
   newTally[votedOption] = Number(newTally[votedOption] || 0) + votePower;
 
   const updatedProposalDatum = createUpdatedProposalDatum(
-    proposalUtxo.output().datum()?.asInlineData()!,
+    proposalUtxo.output().datum()!.asInlineData()!,
     newTally
   );
 
@@ -430,7 +431,7 @@ async function buildVoteTransaction(
     .lockAssets(
       voteUtxo.output().address(),
       voteOutputValue,
-      voteUtxo.output().datum()?.asInlineData()!
+      voteUtxo.output().datum()!.asInlineData()!
     )
     .setValidFrom(validityStart)
     .setValidUntil(validityEnd)

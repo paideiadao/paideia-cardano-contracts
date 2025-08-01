@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       confirmed: response.ok,
       blockHeight: response.ok ? (await response.json()).block?.height : null,
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ confirmed: false });
   }
 }

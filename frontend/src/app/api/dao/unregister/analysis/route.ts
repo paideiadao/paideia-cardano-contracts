@@ -5,11 +5,13 @@ import { cborToScript, applyParamsToScript } from "@blaze-cardano/uplc";
 import { Type } from "@blaze-cardano/data";
 import plutusJson from "@/lib/scripts/plutus.json";
 import {
+  createVoteReceiptIdentifier,
   findUserVoteUtxo,
   getVotePolicyId,
 } from "@/lib/server/helpers/vote-helpers";
 import { fetchDAOInfo } from "@/lib/server/helpers/dao-helpers";
 import { addressFromScript } from "@/lib/server/helpers/script-helpers";
+import { parseRawProposalDatum } from "@/lib/server/helpers/proposal-helpers";
 
 export interface UnregisterAnalysisRequest {
   daoPolicyId: string;
@@ -190,7 +192,7 @@ async function analyzeVoteReceipts(
         const proposalInfo = await getProposalInfo(policyId, assetName);
         voteReceipts.push({
           proposalId: assetName,
-          optionIndex: await extractOptionIndex(assetName),
+          optionIndex: await extractOptionIndex(assetName, assetName),
           amount: Number(quantity),
           proposalName: proposalInfo?.name,
           proposalStatus: proposalInfo?.status,
@@ -212,17 +214,106 @@ async function getProposalInfo(
   endTime?: number;
 } | null> {
   try {
-    // TODO: This will query proposal UTXOs to get current status
-    // For now, return null
+    const proposalValidator = plutusJson.validators.find(
+      (v) => v.title === "proposal.proposal.spend"
+    );
+
+    if (!proposalValidator) {
+      return null;
+    }
+
+    const proposalScript = cborToScript(
+      proposalValidator.compiledCode,
+      "PlutusV3"
+    );
+    const proposalScriptAddress = addressFromScript(proposalScript);
+
+    const proposalUtxos = await blazeMaestroProvider.getUnspentOutputs(
+      proposalScriptAddress
+    );
+
+    // Find the specific proposal UTXO by looking for the proposal identifier asset
+    for (const utxo of proposalUtxos) {
+      const value = utxo.output().amount().toCore();
+      if (value.assets) {
+        for (const [assetId, quantity] of value.assets) {
+          const policyId = Core.AssetId.getPolicyId(assetId);
+          const assetName = Core.AssetId.getAssetName(assetId);
+
+          if (
+            policyId === proposalPolicyId &&
+            assetName === proposalIdentifier &&
+            quantity === 1n
+          ) {
+            // Found the proposal UTXO, parse its datum
+            const datum = utxo.output().datum()?.asInlineData();
+            if (!datum) continue;
+
+            const proposal = parseRawProposalDatum(datum);
+            if (!proposal) continue;
+
+            // Determine actual status
+            const statusConstr = proposal.status.asConstrPlutusData();
+            let status:
+              | "Active"
+              | "Passed"
+              | "FailedThreshold"
+              | "FailedQuorum" = "Active";
+
+            if (statusConstr) {
+              const statusAlt = Number(statusConstr.getAlternative());
+              switch (statusAlt) {
+                case 0:
+                  status = "Active";
+                  break;
+                case 1:
+                  status = "FailedThreshold";
+                  break;
+                case 2:
+                  status = "FailedQuorum";
+                  break;
+                case 3:
+                  status = "Passed";
+                  break;
+              }
+            }
+
+            return {
+              name: proposal.name,
+              status,
+              endTime: proposal.end_time,
+            };
+          }
+        }
+      }
+    }
+
     return null;
   } catch (error) {
+    console.error("Error getting proposal info:", error);
     return null;
   }
 }
 
-async function extractOptionIndex(receiptAssetName: string): Promise<number> {
-  // Vote receipt asset names encode the option index
-  // This will need to match the encoding from get_vote_receipt_identifier
-  // For now, return 0 as placeholder
+async function extractOptionIndex(
+  receiptAssetName: string,
+  proposalIdentifier: string
+): Promise<number> {
+  // Try each possible option index to find which one matches this receipt
+  for (let optionIndex = 0; optionIndex < 20; optionIndex++) {
+    // Check up to 20 options
+    const expectedReceiptIdentifier = createVoteReceiptIdentifier(
+      proposalIdentifier,
+      optionIndex
+    );
+
+    if (expectedReceiptIdentifier === receiptAssetName) {
+      return optionIndex;
+    }
+  }
+
+  console.warn(
+    `Could not determine option index for receipt: ${receiptAssetName}`
+  );
   return 0;
 }

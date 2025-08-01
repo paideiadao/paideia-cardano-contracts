@@ -364,7 +364,7 @@ export default function DeployDaoStep({
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>
             <div className="space-y-2">
-              <p className="font-medium">What's Next?</p>
+              <p className="font-medium">What&apos;s Next?</p>
               <ol className="list-decimal list-inside space-y-1 text-sm">
                 <li>Fund the treasury</li>
                 <li>
