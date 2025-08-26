@@ -147,144 +147,206 @@ Navigate to http://localhost:3000
 
 The frontend handles all the complex smart contract interactions automatically - users just fill out the form and sign transactions.
 
-### Voting on Proposals
+## Voting Process
 
-[**TODO: Add voting process**]
-- How to lock governance tokens
-- Casting votes on proposals
-- Managing vote receipts
-- Unlocking tokens after voting
+### Step-by-Step Voting Process:
 
-### Treasury Management
+1. **Register for DAO Governance (First time only)**
+   - Navigate to the DAO page and click "Register to Vote". This will lock your governance tokens and allow you to vote. 
+   - Receive a Vote NFT that represents your registered tokens
+   - You can unlock anytime when not actively voting
 
-[**TODO: Add treasury operations**]
-- Funding the treasury
-- Executing approved treasury actions
-- Treasury spend limits and controls
+2. **Cast Your Vote**
+   - Find active proposals on the DAO page
+   - Click "Vote" on any proposal during its voting period
+   - Select your preferred option (option 0 is always "No Action")
+   - Specify voting power (up to your registered token amount)
+   - Sign the transaction to mint vote receipt tokens
+
+3. **Managing Vote Receipts**
+   - Vote receipt tokens are minted into your Vote UTXO
+   - Each receipt is unique to the proposal-option combination
+   - You can change votes on active proposals (burns old receipt, mints new one)
+   - Receipts are automatically cleaned after proposals end
+
+4. **Unlocking Tokens**
+   - You can unregister and retrieve tokens anytime
+   - Must not have any active vote receipt tokens
+   - Burns your Vote NFT and returns governance tokens
+
+### Validation Rules:
+- Cannot vote with more tokens than you have registered
+- Cannot double vote on the same proposal
+- Can vote on multiple parallel proposals simultaneously
+- Vote receipts prevent token unlocking until proposals end
+
+## Treasury Management
+
+### Funding the Treasury
+
+**Initial Funding:**
+- Treasury has no datum requirements for easy depositing
+- Anyone can send ADA or native tokens to the treasury address
+- Treasury address is deterministically derived from DAO parameters
+
+**Ongoing Contributions:**
+- Community members can deposit additional funds anytime
+- No special permissions required for deposits
+- All assets are protected by treasury validator
+
+### Executing Approved Treasury Actions
+
+**Prerequisites:**
+- Proposal must have passed with the specific action option
+- Action activation time must have elapsed
+- Valid action UTXO must exist on-chain
+
+**Execution Process:**
+1. Anyone can execute approved actions (permissionless)
+2. Action validator ensures proposal passed correctly
+3. Treasury validator requires valid action as spending condition
+4. Funds are sent to specified targets as defined in action
+5. Action token is burned upon successful execution
+
+**Treasury Spend Controls:**
+- Only whitelisted action validators can spend treasury funds
+- Each action references specific proposal and winning option
+- Action execution requires proposal reference input for validation
+- Treasury validator enforces these constraints on-chain
+
+**Action Types Currently Supported:**
+- **Send Funds**: Transfer ADA and native tokens to specified addresses
+- **Future Extensions**: Additional action types will be made if we are able to secure funding from future Catalyst proposals
 
 ## Smart Contract Architecture
 
-### Contract Deployment
+### Contract Address Derivation
 
-Each DAO deploys its own parameterized smart contract suite. Contract addresses are deterministically derived from:
-- DAO policy ID
-- DAO asset name
-- Governance token policy ID
-- Other DAO-specific parameters
+Contract addresses are deterministically derived using parameterized smart contracts:
 
-[**TODO: Add contract address derivation examples**]
+```
+Script Parameters = [dao_policy_id, dao_key, additional_params...]
+Script Hash = hash(apply_parameters(base_script, parameters))
+Contract Address = payment_credential_from_script_hash(script_hash)
+```
 
-### Validator Types
+**Example Parameters:**
+- DAO Validator: `[dao_policy_id, dao_key]`
+- Proposal Validator: `[dao_policy_id, dao_key, vote_policy_id]`
+- Vote Validator: `[dao_policy_id, dao_key]`
+- Treasury Validator: `[dao_policy_id, dao_key]`
+- Action Validators: `[dao_policy_id, dao_key]`
 
-**DAO Validator (`dao.ak`)**
-- Mints DAO NFT with configuration datum
-- Validates DAO parameter updates
-- Serves as reference point for other validators
+### Validator Relationships
 
-**Proposal Validator (`proposal.ak`)**
-- Creates and manages proposal UTXOs
-- Tracks vote tallies
-- Enforces proposal timing and quorum rules
-- Parameterized with: `dao_policy_id`, `dao_key`, `vote_policy_id`
+**DAO Validator** (`dao.ak`)
+- Contains DAO configuration and governance rules
+- Serves as reference point for all other validators
+- Guards the DAO NFT with immutable parameters
 
-**Vote Validator (`vote.ak`)**
-- Manages governance token locking
-- Mints/burns vote receipt tokens
-- Prevents double voting
-- Parameterized with: `dao_policy_id`, `dao_key`
+**Proposal Validator** (`proposal.proposal.spend`)
+- Manages proposal lifecycle and vote tallies
+- Validates proposal timing and quorum requirements
+- Parameterized with DAO and vote policy identifiers
 
-**Treasury Validator (`treasury.ak`)**
-- Protects DAO treasury funds
-- Requires valid action execution for spending
-- Parameterized with: `dao_policy_id`, `dao_key`
+**Vote Validator** (`vote.vote.spend`)
+- Protects locked governance tokens
+- Manages vote receipt token minting/burning
+- Prevents double voting and unauthorized token access
+
+**Treasury Validator** (`treasury.treasury.spend`)
+- Simple validator requiring valid action execution
+- Only spendable with approved action validators
 
 **Action Validators**
-- `action_send_funds.ak` - Treasury fund transfers
-- [**TODO: Document other action types**]
-- Parameterized with: `dao_policy_id`, `dao_key`
+- `action_send_funds.action_send_funds.spend` - Treasury fund transfers
+- Each action type has its own specialized validator
+- All parameterized with DAO identifiers for isolation
 
-### Token Standards
+## Token Standards and Naming Conventions
 
-**Governance Tokens**
-- Standard Cardano native tokens
-- Can be existing tokens or newly minted
-- Locked in vote UTXOs during active voting
+### Governance Tokens
+- Standard Cardano native tokens (any policy ID + asset name)
+- Can be existing tokens or newly minted for the DAO
+- Locked in Vote UTXOs during active governance participation
 
-**Vote Receipt Tokens**
-- CIP-68 compliant tokens
-- Unique per proposal-option combination
-- Burned when proposals end or votes are changed
+### Vote Receipt Tokens
+- **Purpose**: Prevent double voting and track vote history
+- **Policy ID**: Same as the proposal's policy ID
+- **Asset Name**: Cryptographically derived from proposal ID + vote option
+- **Uniqueness**: Each proposal-option combination gets a unique receipt token
+- **Lifecycle**: Minted when casting votes, burned when proposals end or votes change
 
-[**TODO: Add token naming conventions and examples**]
+### DAO NFT Tokens
+- **DAO Identifier**: Unique NFT that identifies each DAO instance
+- **Vote NFT**: Personal NFT given to users when they register for governance
+- **Vote Reference NFT**: Technical token locked with governance tokens in smart contract
+
+### Vote System Token Flow
+1. **Registration**: User locks governance tokens + receives Vote NFT
+2. **Voting**: Vote receipt tokens minted into user's vote UTXO
+3. **Vote Changes**: Old receipts burned, new ones minted
+4. **Cleanup**: Receipt tokens burned when proposals end
+5. **Unregistration**: Vote NFT burned, governance tokens returned
+
+### CIP-68 Metadata Structure
+Vote NFTs follow CIP-68 standard for rich metadata:
+```json
+{
+  "metadata": {
+    "name": "DAO Membership Token",
+    "description": "Voting rights for [DAO Name]",
+    "image": "ipfs://...",
+    "attributes": {
+      "dao": "DAO Policy ID",
+      "voting_power": "Locked token amount"
+    }
+  },
+  "version": 1,
+  "extra": null
+}
+```
 
 ## API Reference
 
-[**TODO: Document the backend API endpoints**]
-- DAO creation endpoints
-- Proposal management
-- Voting operations
-- Treasury operations
+### Core Endpoints
 
-## Development
+**DAO Management:**
+- `POST /api/dao/deploy/initialize` - Initialize DAO creation plan
+- `POST /api/dao/deploy/finalize` - Deploy DAO on-chain
+- `POST /api/dao/register` - Register for governance (lock tokens)
+- `GET /api/dao/info` - Get DAO configuration and status
 
-### Building Smart Contracts
+**Proposal Operations:**
+- `POST /api/dao/proposal/create` - Create new proposal with optional actions
+- `GET /api/dao/proposal/details` - Get proposal information and status
+- `POST /api/dao/proposal/vote` - Cast vote on active proposal
+- `POST /api/dao/proposal/evaluate` - Evaluate ended proposal
 
-```bash
-cd dao_contracts
-aiken build
+**Action Execution:**
+- `GET /api/dao/action/details` - Get action information and readiness
+- `POST /api/dao/action/execute` - Execute approved treasury action
+
+**Utility Endpoints:**
+- `POST /api/validate-token` - Validate governance token on-chain
+- `POST /api/scan-deployments` - Scan for existing script deployments
+- `POST /api/check-transaction` - Verify transaction confirmation
+
+### Response Formats
+
+All endpoints return JSON with standardized error handling:
+```typescript
+// Success Response
+{
+  success: true,
+  data: { ... },
+  message?: string
+}
+
+// Error Response
+{
+  error: string,
+  details?: any,
+  code?: string
+}
 ```
-
-### Running Tests
-
-```bash
-cd dao_contracts
-aiken check
-```
-
-### Contract Documentation
-
-```bash
-cd dao_contracts
-aiken docs
-```
-
-## Testnet Examples
-
-[**TODO: Add the testnet transaction IDs mentioned in milestone**]
-- Proposal creation transaction: `[TRANSACTION_ID]`
-- Voting transaction: `[TRANSACTION_ID]`  
-- Treasury spending transaction: `[TRANSACTION_ID]`
-
-## Deployment
-
-[**TODO: Add production deployment instructions**]
-- Environment setup for mainnet
-- Database configuration
-- Smart contract deployment process
-- Frontend deployment options
-
-## Troubleshooting
-
-[**TODO: Add common issues and solutions**]
-- Wallet connection issues
-- Transaction failures
-- Network configuration problems
-- Database connection errors
-
-## Security Considerations
-
-[**TODO: Add security best practices**]
-- Governance token security
-- Proposal validation
-- Treasury protection mechanisms
-- Vote receipt management
-
-## License
-
-All code is published under GPL license as specified in the project milestone.
-
-## Links
-
-- GitHub Repository: [**TODO: Add repository link**]
-- Project Documentation: [**TODO: Add docs link if separate**]
-- Demo Video: [**TODO: Add YouTube link mentioned in milestone**]
