@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -130,14 +131,14 @@ export function ProposalsSection({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "Active":
-        return <Clock className="h-4 w-4 text-blue-600" />;
+        return <Clock className="h-4 w-4 text-primary" />;
       case "ReadyForEvaluation":
-        return <Gavel className="h-4 w-4 text-orange-600" />;
+        return <Gavel className="h-4 w-4 text-secondary" />;
       case "Passed":
-        return <CheckCircle className="h-4 w-4 text-green-600" />;
+        return <CheckCircle className="h-4 w-4 text-success" />;
       case "FailedThreshold":
       case "FailedQuorum":
-        return <XCircle className="h-4 w-4 text-red-600" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       default:
         return <AlertTriangle className="h-4 w-4 text-gray-400" />;
     }
@@ -150,7 +151,7 @@ export function ProposalsSection({
       case "ReadyForEvaluation":
         return "secondary" as const;
       case "Passed":
-        return "default" as const;
+        return "success" as const;
       case "FailedThreshold":
       case "FailedQuorum":
         return "destructive" as const;
@@ -316,7 +317,7 @@ export function ProposalsSection({
                         {proposal.totalVotes} votes
                       </span>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {proposal.tally.slice(0, 3).map((votes, index) => {
                         const percentage =
                           proposal.totalVotes > 0
@@ -325,19 +326,23 @@ export function ProposalsSection({
                         const isWinning = winningOption?.index === index;
 
                         return (
-                          <div key={index} className="flex items-center gap-2">
-                            <span className="text-xs w-12">Opt {index}</span>
-                            <div className="flex-1 bg-gray-200 rounded-full h-1.5">
-                              <div
-                                className={`h-1.5 rounded-full ${
-                                  isWinning ? "bg-green-500" : "bg-blue-500"
-                                }`}
-                                style={{ width: `${percentage}%` }}
-                              />
+                          <div key={index} className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium">
+                                Option {index}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {percentage}%
+                              </span>
                             </div>
-                            <span className="text-xs w-8 text-right">
-                              {percentage}%
-                            </span>
+                            <Progress
+                              value={percentage}
+                              className={`h-2 ${
+                                !isWinning
+                                  ? "bg-destructive/20 [&>div]:bg-destructive"
+                                  : "bg-success/20 [&>div]:bg-success"
+                              }`}
+                            />
                           </div>
                         );
                       })}

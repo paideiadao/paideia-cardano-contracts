@@ -19,6 +19,11 @@ import {
   Clock,
   ArrowRight,
   ExternalLink,
+  ArrowLeft,
+  Wallet,
+  Coins,
+  Target,
+  AlertTriangle,
 } from "lucide-react";
 import { useWallet } from "@meshsdk/react";
 import { Separator } from "@/components/ui/separator";
@@ -257,7 +262,7 @@ export default function ExecuteActionPage() {
       <div className="container mx-auto py-8">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
             <p className="text-muted-foreground">Loading action details...</p>
           </div>
         </div>
@@ -268,14 +273,13 @@ export default function ExecuteActionPage() {
   if (executionState.error && !actionDetails) {
     return (
       <div className="container mx-auto py-8">
-        <Alert className="border-red-200 bg-red-50">
-          <XCircle className="h-4 w-4 text-red-600" />
-          <AlertDescription className="text-red-800">
-            {executionState.error}
-          </AlertDescription>
+        <Alert variant="destructive">
+          <XCircle className="h-4 w-4" />
+          <AlertDescription>{executionState.error}</AlertDescription>
         </Alert>
         <div className="mt-4">
           <Button onClick={() => router.back()} variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-2" />
             Go Back
           </Button>
         </div>
@@ -284,30 +288,30 @@ export default function ExecuteActionPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 max-w-4xl">
+    <div className="container mx-auto py-8 max-w-6xl">
       {/* Header */}
       <div className="mb-8">
-        <Button onClick={() => router.back()} variant="ghost" className="mb-4">
-          ← Back to Proposal
-        </Button>
-        <h1 className="text-3xl font-bold">Execute Action</h1>
-        <p className="text-muted-foreground mt-2">
+        <div className="flex items-center gap-3 mb-2">
+          <Target className="h-8 w-8" />
+          <h1 className="text-3xl font-bold">Execute Action</h1>
+        </div>
+        <p className="text-muted-foreground">
           Execute the treasury action for the passed proposal
         </p>
       </div>
 
       {/* Success Message */}
       {executionState.success && (
-        <Alert className="mb-6 border-green-200 bg-green-50">
-          <CheckCircle className="h-4 w-4 text-green-600" />
-          <AlertDescription className="text-green-800">
+        <Alert className="mb-6 bg-success/10 border-success/20">
+          <CheckCircle className="h-4 w-4 text-success" />
+          <AlertDescription className="text-success">
             Action executed successfully!
             {executionState.txHash && (
               <a
                 href={`https://cardanoscan.io/transaction/${executionState.txHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="ml-2 inline-flex items-center text-green-700 hover:text-green-900 underline"
+                className="ml-2 inline-flex items-center text-success hover:text-success/80 underline"
               >
                 View Transaction <ExternalLink className="h-3 w-3 ml-1" />
               </a>
@@ -318,24 +322,24 @@ export default function ExecuteActionPage() {
 
       {/* Error Message */}
       {executionState.error && (
-        <Alert className="mb-6 border-red-200 bg-red-50">
-          <XCircle className="h-4 w-4 text-red-600" />
-          <AlertDescription className="text-red-800">
-            {executionState.error}
-          </AlertDescription>
+        <Alert variant="destructive" className="mb-6">
+          <XCircle className="h-4 w-4" />
+          <AlertDescription>{executionState.error}</AlertDescription>
         </Alert>
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Action Details */}
+          {/* Action Overview Card */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>{actionDetails?.name}</CardTitle>
-                  <CardDescription>
+                  <CardTitle className="text-xl">
+                    {actionDetails?.name}
+                  </CardTitle>
+                  <CardDescription className="mt-1">
                     {actionDetails?.description}
                   </CardDescription>
                 </div>
@@ -345,7 +349,14 @@ export default function ExecuteActionPage() {
                       ? "default"
                       : actionStatus.status === "executed"
                       ? "secondary"
-                      : "destructive"
+                      : "outline"
+                  }
+                  className={
+                    actionStatus.status === "ready"
+                      ? "bg-success/10 text-success border-success/20"
+                      : actionStatus.status === "executed"
+                      ? "bg-secondary/10 text-secondary border-secondary/20"
+                      : "bg-warning/10 text-warning border-warning/20"
                   }
                 >
                   {actionStatus.label}
@@ -354,77 +365,93 @@ export default function ExecuteActionPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div>
-                  <h4 className="font-medium mb-2">Status</h4>
+                <div className="p-4 rounded-lg bg-muted/50">
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    Status
+                  </h4>
                   <p className="text-sm text-muted-foreground">
                     {actionStatus.description}
                   </p>
                 </div>
 
                 {actionDetails && actionDetails.activationTime > Date.now() && (
-                  <div>
-                    <h4 className="font-medium mb-2">Activation Time</h4>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">
-                        {new Date(
-                          actionDetails.activationTime
-                        ).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <Separator />
-
-                <div>
-                  <h4 className="font-medium mb-3">Treasury Transfers</h4>
-                  {actionDetails?.targets.length === 0 ? (
-                    <div className="p-3 bg-muted/50 rounded-lg text-center text-muted-foreground">
-                      No transfer targets defined for this action
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {actionDetails?.targets.map((target, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                        >
-                          <div>
-                            <p className="text-sm font-medium">
-                              To: {truncateHash(target.address)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {target.address}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-medium">
-                              {formatADA(target.coins)}
-                            </p>
-                            {target.tokens.length > 0 && (
-                              <p className="text-xs text-muted-foreground">
-                                + {target.tokens.length} token(s)
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {totalAmount > 0 && (
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h4 className="font-medium text-blue-900 mb-1">
-                      Total Amount
+                  <div className="p-4 rounded-lg bg-secondary/5 border border-secondary/20">
+                    <h4 className="font-medium mb-2 flex items-center gap-2 text-secondary">
+                      <Clock className="h-4 w-4" />
+                      Activation Time
                     </h4>
-                    <p className="text-2xl font-bold text-blue-900">
-                      {formatADA(totalAmount)}
-                    </p>
+                    <span className="text-sm text-secondary">
+                      {new Date(actionDetails.activationTime).toLocaleString()}
+                    </span>
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Treasury Transfers */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Coins className="h-5 w-5" />
+                Treasury Transfers
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {actionDetails?.targets.length === 0 ? (
+                <div className="p-6 bg-muted/30 rounded-lg text-center">
+                  <Target className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-muted-foreground">
+                    No transfer targets defined for this action
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {actionDetails?.targets.map((target, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between gap-4 p-4 bg-muted/30 rounded-lg border"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Wallet className="h-4 w-4 text-muted-foreground" />
+                          <p className="text-sm font-medium">
+                            To: {truncateHash(target.address)}
+                          </p>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-mono wrap-anywhere">
+                          {target.address}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-primary">
+                          {formatADA(target.coins)}
+                        </p>
+                        {target.tokens.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            + {target.tokens.length} token(s)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {totalAmount > 0 && (
+                    <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-primary flex items-center gap-2">
+                          <Coins className="h-4 w-4" />
+                          Total Amount
+                        </h4>
+                        <p className="text-2xl font-bold text-primary">
+                          {formatADA(totalAmount)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -449,6 +476,11 @@ export default function ExecuteActionPage() {
                           ? "default"
                           : "secondary"
                       }
+                      className={
+                        proposalInfo.status === "Passed"
+                          ? "bg-success/10 text-success border-success/20"
+                          : ""
+                      }
                     >
                       {proposalInfo.status}
                     </Badge>
@@ -469,13 +501,21 @@ export default function ExecuteActionPage() {
           {/* Execute Action Card */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Execute Action</CardTitle>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Target className="h-5 w-5" />
+                Execute Action
+              </CardTitle>
               <CardDescription>Execute this treasury action</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {!connected ? (
-                  <div>Connect Wallet</div>
+                  <div className="p-4 bg-warning/5 border border-warning/20 rounded-lg text-center">
+                    <Wallet className="h-6 w-6 text-warning mx-auto mb-2" />
+                    <p className="text-sm text-warning font-medium">
+                      Connect your wallet to execute actions
+                    </p>
+                  </div>
                 ) : (
                   <Button
                     onClick={executeAction}
@@ -485,6 +525,8 @@ export default function ExecuteActionPage() {
                       executionState.success
                     }
                     className="w-full"
+                    variant="secondary"
+                    size="lg"
                   >
                     {executionState.isExecuting ? (
                       <>
@@ -506,12 +548,13 @@ export default function ExecuteActionPage() {
                 )}
 
                 {actionStatus.canExecute && (
-                  <div className="text-xs text-muted-foreground">
-                    <p>
-                      ⚠️ This action will transfer funds from the DAO treasury.
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                      This action will transfer funds from the DAO treasury.
                       Make sure you understand the consequences.
-                    </p>
-                  </div>
+                    </AlertDescription>
+                  </Alert>
                 )}
               </div>
             </CardContent>
@@ -522,19 +565,20 @@ export default function ExecuteActionPage() {
             <CardHeader>
               <CardTitle className="text-lg">Action Details</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <p className="text-sm text-muted-foreground">Option</p>
-                <p className="text-sm">{actionDetails?.option}</p>
+            <CardContent className="space-y-4">
+              <div className="p-3 bg-muted/30 rounded-lg">
+                <p className="text-sm text-muted-foreground mb-1">Option</p>
+                <p className="font-semibold">{actionDetails?.option}</p>
               </div>
+
               {actionDetails?.treasuryAddress &&
                 actionDetails.treasuryAddress !==
                   "treasury_address_placeholder" && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-1">
                       Treasury Address
                     </p>
-                    <p className="text-xs font-mono break-all">
+                    <p className="text-xs font-mono break-all text-primary">
                       {truncateHash(actionDetails.treasuryAddress)}
                     </p>
                   </div>

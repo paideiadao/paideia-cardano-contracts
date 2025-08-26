@@ -210,14 +210,6 @@ function EvaluationPageContent() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        <Link
-          href={`/dao?policyId=${daoPolicyId}&assetName=${daoKey}`}
-          className="inline-flex items-center text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to DAO
-        </Link>
-
         <div>
           <h1 className="text-3xl font-bold">Proposal Evaluation</h1>
           <p className="text-muted-foreground mt-2">

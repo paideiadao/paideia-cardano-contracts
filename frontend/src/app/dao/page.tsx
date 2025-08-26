@@ -24,8 +24,8 @@ import { useDaoContext } from "@/contexts/dao-context";
 export default function ViewDAOPage() {
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
-  const policyId = searchParams.get("policyId");
-  const assetName = searchParams.get("assetName");
+  const policyId = searchParams.get("daoPolicyId");
+  const assetName = searchParams.get("daoKey");
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
   const [isCheckingRegistration, setIsCheckingRegistration] = useState(false);
@@ -143,7 +143,7 @@ export default function ViewDAOPage() {
     if (!registrationStatus.isRegistered) {
       return (
         <Link
-          href={`/dao/register?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+          href={`/dao/register?daoPolicyId=${daoInfo?.policyId}&daoKey=${assetName}`}
         >
           <Button>
             <Vote className="mr-1 h-4 w-4" />
@@ -169,14 +169,14 @@ export default function ViewDAOPage() {
           </div>
         )}
         <Link
-          href={`/dao/unregister?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+          href={`/dao/unregister?daoPolicyId=${daoInfo?.policyId}&daoKey=${assetName}`}
         >
           <Button variant="outline" size="sm">
             Unregister
           </Button>
         </Link>
         <Link
-          href={`/dao/create-proposal?policyId=${daoInfo?.policyId}&assetName=${assetName}`}
+          href={`/dao/create-proposal?daoPolicyId=${daoInfo?.policyId}&daoKey=${assetName}`}
         >
           <Button size="sm">Create Proposal</Button>
         </Link>

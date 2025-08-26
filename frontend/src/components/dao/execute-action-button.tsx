@@ -20,10 +20,10 @@ export function ExecuteActionButton({
   proposalAssetName,
   actionIndex,
   size = "default",
-  variant = "default",
+  variant = "secondary",
   className,
 }: ExecuteActionButtonProps) {
-  const executeUrl = `/dao/execute-action?daoPolicyId=${daoPolicyId}&daoKey=${daoKey}&proposalPolicyId=${proposalPolicyId}&proposalAssetName=${proposalAssetName}&actionIndex=${actionIndex}`;
+  const executeUrl = `/dao/proposal/execute-action?daoPolicyId=${daoPolicyId}&daoKey=${daoKey}&proposalPolicyId=${proposalPolicyId}&proposalAssetName=${proposalAssetName}&actionIndex=${actionIndex}`;
 
   return (
     <Button asChild size={size} variant={variant} className={className}>

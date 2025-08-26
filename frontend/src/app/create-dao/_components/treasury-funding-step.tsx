@@ -327,7 +327,7 @@ export function TreasuryFundingStep({ onBack }: TreasuryFundingStepProps) {
         <Button
           onClick={() =>
             window.open(
-              `/dao?policyId=${daoPolicyId}&assetName=${daoAssetName}`,
+              `/dao?daoPolicyId=${daoPolicyId}&daoKey=${daoAssetName}`,
               "_blank"
             )
           }

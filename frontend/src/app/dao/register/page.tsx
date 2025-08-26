@@ -40,8 +40,8 @@ export default function RegisterPage() {
   const { wallet, connected } = useWallet();
   const { daoInfo, isLoading: isLoadingDAO } = useDaoContext();
 
-  const policyId = searchParams.get("policyId");
-  const assetName = searchParams.get("assetName");
+  const policyId = searchParams.get("daoPolicyId");
+  const assetName = searchParams.get("daoKey");
 
   const [governanceBalance, setGovernanceBalance] = useState<number>(0);
   const [registrationAmount, setRegistrationAmount] = useState<number>(0);
@@ -253,9 +253,9 @@ export default function RegisterPage() {
 
   const handleBackToDAO = () => {
     router.push(
-      `/dao?policyId=${encodeURIComponent(
+      `/dao?daoPolicyId=${encodeURIComponent(
         policyId!
-      )}&assetName=${encodeURIComponent(assetName!)}`
+      )}&daoKey=${encodeURIComponent(assetName!)}`
     );
   };
 
@@ -299,11 +299,6 @@ export default function RegisterPage() {
   if (success) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
-        <Button variant="ghost" onClick={handleBackToDAO}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to {daoInfo?.name}
-        </Button>
-
         <Alert>
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>
@@ -373,11 +368,6 @@ export default function RegisterPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <Button variant="ghost" onClick={handleBackToDAO}>
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to {daoInfo?.name}
-      </Button>
-
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

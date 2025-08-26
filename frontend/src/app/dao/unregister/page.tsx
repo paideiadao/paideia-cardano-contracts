@@ -31,12 +31,11 @@ type RegistrationState =
   | "submitting";
 
 export default function UnregisterPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { wallet, connected } = useWallet();
 
-  const policyId = searchParams.get("policyId");
-  const assetName = searchParams.get("assetName");
+  const policyId = searchParams.get("daoPolicyId");
+  const assetName = searchParams.get("daoKey");
 
   const [analysis, setAnalysis] = useState<UnregisterAnalysis | null>(null);
   const [registrationState, setRegistrationState] =
@@ -199,15 +198,6 @@ export default function UnregisterPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Back Navigation */}
-      <Link
-        href={`/dao?policyId=${policyId}&assetName=${assetName}`}
-        className="inline-flex items-center text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to DAO
-      </Link>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

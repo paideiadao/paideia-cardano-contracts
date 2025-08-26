@@ -163,26 +163,26 @@ export default function ProposalPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "Active":
-        return <Clock className="h-5 w-5 text-blue-600" />;
+        return <Clock className="h-5 w-5 text-info" />;
       case "Passed":
-        return <CheckCircle className="h-5 w-5 text-green-600" />;
+        return <CheckCircle className="h-5 w-5 text-success" />;
       case "FailedThreshold":
       case "FailedQuorum":
-        return <XCircle className="h-5 w-5 text-red-600" />;
+        return <XCircle className="h-5 w-5 text-destructive" />;
       default:
-        return <AlertTriangle className="h-5 w-5 text-gray-400" />;
+        return <AlertTriangle className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Active":
-        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800";
+        return "bg-info/10 text-info border-info/20";
       case "Passed":
-        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800";
+        return "bg-success/10 text-success border-success/20";
       case "FailedThreshold":
       case "FailedQuorum":
-        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-200 dark:border-red-800";
+        return "bg-destructive/10 text-destructive border-destructive/20";
       default:
         return "bg-muted text-muted-foreground border-muted";
     }
@@ -191,12 +191,12 @@ export default function ProposalPage() {
   const getLiveStatusColor = (type: string) => {
     switch (type) {
       case "Passing":
-        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-200 dark:border-green-800";
+        return "bg-success/10 text-success border-success/20";
       case "FailedQuorum":
       case "FailedThreshold":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-200 dark:border-yellow-800";
+        return "bg-warning/10 text-warning border-warning/20";
       default:
-        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800";
+        return "bg-info/10 text-info border-info/20";
     }
   };
 
@@ -288,14 +288,6 @@ export default function ProposalPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <Link
-        href={`/dao?policyId=${daoPolicyId}&assetName=${daoKey}`}
-        className="inline-flex items-center text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to DAO
-      </Link>
-
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between">
@@ -325,9 +317,8 @@ export default function ProposalPage() {
                       : "Active"}
                   </div>
                 )}
-                {/* Time remaining badge */}
                 {isActive && !hasEnded && (
-                  <div className="px-2 py-1 rounded-full border text-sm font-medium bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950 dark:text-orange-200 dark:border-orange-800">
+                  <div className="px-2 py-1 rounded-full border text-sm font-medium bg-secondary/10 text-secondary border-secondary/20">
                     <Clock className="h-3 w-3 inline mr-1" />
                     {formatTimeRemaining(proposal.endTime)}
                   </div>
@@ -341,7 +332,6 @@ export default function ProposalPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              {/* Evaluation Button */}
               {showEvaluationButton && (
                 <ProposalEvaluationButton
                   proposal={{
@@ -362,7 +352,6 @@ export default function ProposalPage() {
                 />
               )}
 
-              {/* External Link Button */}
               <Button
                 variant="ghost"
                 size="sm"
@@ -384,8 +373,6 @@ export default function ProposalPage() {
 
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
-          {/* Voting Section */}
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -394,59 +381,66 @@ export default function ProposalPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="flex justify-between items-center p-3 bg-muted/50 rounded-lg mb-4">
+                <span className="text-sm font-medium">Total Voting Power</span>
+                <span className="font-semibold">
+                  {proposal.userVoteInfo?.votePower?.toLocaleString() ?? 0}{" "}
+                  tokens
+                </span>
+              </div>
+
               {proposal.userVoteInfo?.hasVoted && !showVotingInterface ? (
-                // Show current vote status with change vote button
                 <div className="space-y-4">
-                  <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
+                  <div className="p-4 border rounded-lg">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-green-700 dark:text-green-300">
-                        Your Current Vote
+                      <span className="text-sm text-muted-foreground">
+                        Current Vote
                       </span>
-                      <span className="font-semibold text-green-600 dark:text-green-400">
+                      <span className="font-semibold">
                         {proposal.userVoteInfo.votedAmount?.toLocaleString() ??
                           "Unknown"}{" "}
                         votes
                       </span>
                     </div>
-                    <p className="text-sm text-green-700 dark:text-green-300">
-                      Voted for:{" "}
+                    <p className="font-medium">
                       {getOptionLabel(proposal.userVoteInfo.votedOption ?? 0)}
                     </p>
                   </div>
 
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">
-                      Total Voting Power
-                    </span>
-                    <span className="font-medium">
-                      {proposal.userVoteInfo.votePower?.toLocaleString() ?? 0}{" "}
-                      tokens
-                    </span>
-                  </div>
+                  {proposal.status === "Active" &&
+                  Date.now() <= proposal.endTime ? (
+                    <>
+                      <Button
+                        onClick={() => setShowVotingInterface(true)}
+                        className="w-full"
+                        variant="outline"
+                      >
+                        Change Vote
+                      </Button>
 
-                  <Button
-                    onClick={() => setShowVotingInterface(true)}
-                    className="w-full"
-                    variant="outline"
-                  >
-                    Change Vote
-                  </Button>
-
-                  <Alert>
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription className="text-sm">
-                      Changing your vote will completely replace your previous
-                      vote with your full voting power.
-                    </AlertDescription>
-                  </Alert>
+                      <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                          Changing your vote will completely replace your
+                          previous vote with your full voting power.
+                        </AlertDescription>
+                      </Alert>
+                    </>
+                  ) : (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-sm">
+                        Voting is currently closed for this proposal.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               ) : (
-                // Show voting interface
                 <div className="space-y-4">
                   {proposal.userVoteInfo?.hasVoted && (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                       <span className="text-sm text-muted-foreground">
-                        Currently voted for:{" "}
+                        Currently voted:{" "}
                         {getOptionLabel(proposal.userVoteInfo.votedOption ?? 0)}
                       </span>
                       <Button
@@ -473,7 +467,6 @@ export default function ProposalPage() {
             </CardContent>
           </Card>
 
-          {/* Actions */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -497,7 +490,7 @@ export default function ProposalPage() {
                         {action.isExecuted && (
                           <Badge
                             variant="secondary"
-                            className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                            className="bg-success/10 text-success border-success/20"
                           >
                             ✓ Executed
                           </Badge>
@@ -524,8 +517,8 @@ export default function ProposalPage() {
                       />
                     )}
                     {action.isExecuted && (
-                      <div className="mt-3 p-2 bg-green-50 dark:bg-green-950/30 rounded border border-green-200 dark:border-green-800">
-                        <p className="text-xs text-green-700 dark:text-green-300">
+                      <div className="mt-3 p-2 bg-success/5 rounded border border-success/20">
+                        <p className="text-xs text-success">
                           This action has been executed and is now complete.
                         </p>
                       </div>
@@ -540,7 +533,6 @@ export default function ProposalPage() {
         </div>
 
         <div className="space-y-6">
-          {/* Voting Results */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -563,7 +555,7 @@ export default function ProposalPage() {
                       <span className="font-medium">
                         {getOptionLabel(index)}
                         {isWinning && proposal.status === "Passed" && (
-                          <Badge variant="default" className="ml-2">
+                          <Badge variant="outline" className="ml-2">
                             Winner
                           </Badge>
                         )}
@@ -583,7 +575,7 @@ export default function ProposalPage() {
                     <Progress
                       value={percentage}
                       className={`h-2 ${
-                        isWinning || isLiveWinner ? "bg-green-100" : ""
+                        isWinning || isLiveWinner ? "[&>div]:bg-success" : ""
                       }`}
                     />
                   </div>
@@ -598,7 +590,6 @@ export default function ProposalPage() {
             </CardContent>
           </Card>
 
-          {/* Governance Requirements */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -653,7 +644,6 @@ export default function ProposalPage() {
             </CardContent>
           </Card>
 
-          {/* Timeline with end time details */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -662,9 +652,8 @@ export default function ProposalPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Proposal Created */}
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <div className="w-2 h-2 bg-success rounded-full"></div>
                 <div>
                   <p className="text-sm font-medium">Proposal Created</p>
                   <p className="text-xs text-muted-foreground">
@@ -677,13 +666,10 @@ export default function ProposalPage() {
                 </div>
               </div>
 
-              {/* Voting Period */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    proposal.status === "Active"
-                      ? "bg-blue-500"
-                      : "bg-green-500"
+                    proposal.status === "Active" ? "bg-info" : "bg-success"
                   }`}
                 ></div>
                 <div>
@@ -694,11 +680,10 @@ export default function ProposalPage() {
                 </div>
               </div>
 
-              {/* UPDATED: Voting Ends with detailed time info */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-2 h-2 rounded-full ${
-                    hasEnded ? "bg-green-500" : "bg-orange-500"
+                    hasEnded ? "bg-success" : "bg-secondary"
                   }`}
                 ></div>
                 <div className="flex-1">
@@ -707,24 +692,23 @@ export default function ProposalPage() {
                     {new Date(proposal.endTime).toLocaleString()}
                   </p>
                   {!hasEnded && (
-                    <p className="text-xs font-medium text-orange-600 dark:text-orange-400">
+                    <p className="text-xs font-medium text-secondary">
                       {formatTimeRemaining(proposal.endTime)}
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Proposal Evaluation */}
               <div className="flex items-center gap-3">
                 <div
                   className={`w-2 h-2 rounded-full ${
                     ["Passed", "FailedThreshold", "FailedQuorum"].includes(
                       proposal.status
                     )
-                      ? "bg-green-500"
+                      ? "bg-success"
                       : proposal.status === "ReadyForEvaluation" ||
                         showEvaluationButton
-                      ? "bg-yellow-500"
+                      ? "bg-warning"
                       : "bg-muted-foreground/30"
                   }`}
                 ></div>
@@ -743,18 +727,17 @@ export default function ProposalPage() {
                 </div>
               </div>
 
-              {/* Action Execution Step */}
               {proposal.actions.length > 0 && (
                 <div className="flex items-center gap-3">
                   <div
                     className={`w-2 h-2 rounded-full ${
                       proposal.actions.every((action) => action.isExecuted)
-                        ? "bg-green-500"
+                        ? "bg-success"
                         : proposal.status === "Passed" &&
                           proposal.actions.some((action) => action.isExecuted)
-                        ? "bg-yellow-500"
+                        ? "bg-warning"
                         : proposal.status === "Passed"
-                        ? "bg-blue-500"
+                        ? "bg-info"
                         : "bg-muted-foreground/30"
                     }`}
                   ></div>
@@ -776,7 +759,6 @@ export default function ProposalPage() {
                 </div>
               )}
 
-              {/* Status-specific alerts */}
               {proposal.status === "Passed" && proposal.actions.length > 0 && (
                 <Alert>
                   <CheckCircle className="h-4 w-4" />

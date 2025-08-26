@@ -73,8 +73,8 @@ export default function CreateProposalPage() {
   const { wallet, connected } = useWallet();
   const { daoInfo, isLoading } = useDaoContext();
 
-  const policyId = searchParams.get("policyId");
-  const assetName = searchParams.get("assetName");
+  const policyId = searchParams.get("daoPolicyId");
+  const assetName = searchParams.get("daoKey");
 
   const [registrationStatus, setRegistrationStatus] =
     useState<RegistrationStatus | null>(null);
@@ -471,14 +471,6 @@ export default function CreateProposalPage() {
   if (!registrationStatus?.isRegistered) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
-        <Link
-          href={`/dao?policyId=${policyId}&assetName=${assetName}`}
-          className="inline-flex items-center text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to {daoInfo?.name}
-        </Link>
-
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
@@ -502,13 +494,6 @@ export default function CreateProposalPage() {
   if (success) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
-        <Link
-          href={`/dao?policyId=${policyId}&assetName=${assetName}`}
-          className="inline-flex items-center text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to {daoInfo?.name}
-        </Link>
         <Alert>
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>
@@ -602,14 +587,6 @@ export default function CreateProposalPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <Link
-        href={`/dao?policyId=${policyId}&assetName=${assetName}`}
-        className="inline-flex items-center text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to {daoInfo?.name}
-      </Link>
-
       <Card>
         <CardHeader>
           <CardTitle>Create New Proposal</CardTitle>

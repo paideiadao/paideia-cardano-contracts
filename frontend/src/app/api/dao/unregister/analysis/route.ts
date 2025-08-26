@@ -135,6 +135,11 @@ async function analyzeVoteReceipts(
   daoKey: string,
   votePolicyId: string
 ): Promise<VoteReceiptInfo[]> {
+  console.log("🔍 ANALYZING VOTE RECEIPTS - START");
+  console.log("Vote UTXO ref:", voteUtxoRef);
+  console.log("DAO Policy ID:", daoPolicyId);
+  console.log("Vote Policy ID:", votePolicyId);
+
   // Get the actual Vote UTXO to examine its assets
   const voteValidator = plutusJson.validators.find(
     (v) => v.title === "vote.vote.spend"
@@ -153,54 +158,128 @@ async function analyzeVoteReceipts(
   const voteScript = cborToScript(parameterizedVoteScript, "PlutusV3");
   const voteScriptAddress = addressFromScript(voteScript);
 
+  console.log("Vote script address:", voteScriptAddress.toBech32());
+
   const voteUtxos = await blazeMaestroProvider.getUnspentOutputs(
     voteScriptAddress
   );
+
+  console.log(`Found ${voteUtxos.length} vote UTXOs at script address`);
+
+  // DEBUG: Log all found UTXOs
+  voteUtxos.forEach((utxo, index) => {
+    console.log(`Vote UTXO ${index}:`, {
+      txHash: utxo.input().transactionId(),
+      outputIndex: utxo.input().index(),
+      matches:
+        utxo.input().transactionId() === voteUtxoRef.txHash &&
+        utxo.input().index() === voteUtxoRef.outputIndex,
+    });
+  });
 
   // Find our specific Vote UTXO
   const ourVoteUtxo = voteUtxos.find(
     (utxo) =>
       utxo.input().transactionId() === voteUtxoRef.txHash &&
-      utxo.input().index() === voteUtxoRef.outputIndex
+      Number(utxo.input().index()) === voteUtxoRef.outputIndex
   );
 
   if (!ourVoteUtxo) {
+    console.log("❌ Our vote UTXO not found");
+    console.log("Looking for:", {
+      txHash: voteUtxoRef.txHash,
+      outputIndex: voteUtxoRef.outputIndex,
+    });
     return [];
   }
+
+  console.log("✅ Found our vote UTXO");
 
   // Extract vote receipt tokens (anything that's not reference NFT or governance tokens)
   const voteReceipts: VoteReceiptInfo[] = [];
   const value = ourVoteUtxo.output().amount().toCore();
 
+  console.log("Vote UTXO value:", {
+    coins: value.coins,
+    assetCount: value.assets?.size ?? 0,
+  });
+
   if (value.assets) {
+    console.log("📋 ANALYZING ASSETS IN VOTE UTXO:");
     const daoInfo = await fetchDAOInfo(daoPolicyId, daoKey);
     const govTokenHex = daoInfo.governance_token;
     const govPolicyId = govTokenHex.slice(0, 56);
     const govAssetName = govTokenHex.slice(56);
 
+    console.log("Governance token:", { govPolicyId, govAssetName });
+    console.log("Whitelisted proposals:", daoInfo.whitelisted_proposals);
+
+    let assetIndex = 0;
     for (const [assetId, quantity] of value.assets) {
       const policyId = Core.AssetId.getPolicyId(assetId);
       const assetName = Core.AssetId.getAssetName(assetId);
 
+      console.log(`Asset ${assetIndex++}:`, {
+        policyId,
+        assetName,
+        quantity: quantity.toString(),
+        isVotePolicyId: policyId === votePolicyId,
+        isGovToken: policyId === govPolicyId && assetName === govAssetName,
+        isWhitelisted: daoInfo.whitelisted_proposals.includes(policyId),
+      });
+
       // Skip reference NFT and governance tokens
-      if (policyId === votePolicyId && assetName.startsWith("0000")) continue;
-      if (policyId === govPolicyId && assetName === govAssetName) continue;
+      if (policyId === votePolicyId && assetName.startsWith("0000")) {
+        console.log("  → Skipping: Vote reference NFT");
+        continue;
+      }
+      if (policyId === govPolicyId && assetName === govAssetName) {
+        console.log("  → Skipping: Governance token");
+        continue;
+      }
 
       // This should be a vote receipt token
       // Vote receipts are minted by proposal policies
       if (daoInfo.whitelisted_proposals.includes(policyId)) {
+        console.log("  → Processing: Vote receipt token");
+        console.log(
+          `    Getting proposal info for policy: ${policyId}, asset: ${assetName}`
+        );
+
         const proposalInfo = await getProposalInfo(policyId, assetName);
+        console.log("    Proposal info result:", proposalInfo);
+
+        const optionIndex = await extractOptionIndex(assetName, assetName);
+        console.log("    Extracted option index:", optionIndex);
+
         voteReceipts.push({
           proposalId: assetName,
-          optionIndex: await extractOptionIndex(assetName, assetName),
+          optionIndex,
           amount: Number(quantity),
           proposalName: proposalInfo?.name,
           proposalStatus: proposalInfo?.status,
           endTime: proposalInfo?.endTime,
         });
+
+        console.log("    ✅ Added vote receipt to results");
+      } else {
+        console.log("  → Skipping: Not in whitelisted proposals");
       }
     }
   }
+
+  console.log(`🔍 FINAL RESULTS: Found ${voteReceipts.length} vote receipts`);
+  voteReceipts.forEach((receipt, i) => {
+    console.log(`Receipt ${i}:`, {
+      proposalId: receipt.proposalId,
+      optionIndex: receipt.optionIndex,
+      amount: receipt.amount,
+      proposalName: receipt.proposalName,
+      proposalStatus: receipt.proposalStatus,
+      endTime: receipt.endTime,
+      isActive: receipt.proposalStatus === "Active",
+    });
+  });
 
   return voteReceipts;
 }
@@ -213,12 +292,17 @@ async function getProposalInfo(
   status?: "Active" | "Passed" | "FailedThreshold" | "FailedQuorum";
   endTime?: number;
 } | null> {
+  console.log("🔍 GET PROPOSAL INFO - START");
+  console.log("Proposal policy ID:", proposalPolicyId);
+  console.log("Proposal identifier:", proposalIdentifier);
+
   try {
     const proposalValidator = plutusJson.validators.find(
       (v) => v.title === "proposal.proposal.spend"
     );
 
     if (!proposalValidator) {
+      console.log("❌ Proposal validator not found");
       return null;
     }
 
@@ -228,29 +312,58 @@ async function getProposalInfo(
     );
     const proposalScriptAddress = addressFromScript(proposalScript);
 
+    console.log("Proposal script address:", proposalScriptAddress.toBech32());
+
     const proposalUtxos = await blazeMaestroProvider.getUnspentOutputs(
       proposalScriptAddress
     );
 
+    console.log(`Found ${proposalUtxos.length} proposal UTXOs`);
+
     // Find the specific proposal UTXO by looking for the proposal identifier asset
+    let proposalUtxoIndex = 0;
     for (const utxo of proposalUtxos) {
+      console.log(`Checking proposal UTXO ${proposalUtxoIndex++}`);
+
       const value = utxo.output().amount().toCore();
       if (value.assets) {
+        console.log(`  Has ${value.assets.size} assets`);
+
+        let assetIndex = 0;
         for (const [assetId, quantity] of value.assets) {
           const policyId = Core.AssetId.getPolicyId(assetId);
           const assetName = Core.AssetId.getAssetName(assetId);
+
+          console.log(
+            `    Asset ${assetIndex++}: policy=${policyId}, name=${assetName}, qty=${quantity}`
+          );
 
           if (
             policyId === proposalPolicyId &&
             assetName === proposalIdentifier &&
             quantity === 1n
           ) {
+            console.log("    ✅ Found matching proposal UTXO!");
+
             // Found the proposal UTXO, parse its datum
             const datum = utxo.output().datum()?.asInlineData();
-            if (!datum) continue;
+            if (!datum) {
+              console.log("    ❌ No datum found");
+              continue;
+            }
 
+            console.log("    📋 Parsing proposal datum...");
             const proposal = parseRawProposalDatum(datum);
-            if (!proposal) continue;
+            if (!proposal) {
+              console.log("    ❌ Failed to parse proposal datum");
+              continue;
+            }
+
+            console.log("    ✅ Parsed proposal:", {
+              name: proposal.name,
+              endTime: proposal.end_time,
+              rawStatus: proposal.status,
+            });
 
             // Determine actual status
             const statusConstr = proposal.status.asConstrPlutusData();
@@ -262,6 +375,8 @@ async function getProposalInfo(
 
             if (statusConstr) {
               const statusAlt = Number(statusConstr.getAlternative());
+              console.log("    Status alternative:", statusAlt);
+
               switch (statusAlt) {
                 case 0:
                   status = "Active";
@@ -278,6 +393,12 @@ async function getProposalInfo(
               }
             }
 
+            const currentTime = Date.now();
+            console.log("    Current time:", currentTime);
+            console.log("    Proposal end time:", proposal.end_time);
+            console.log("    Has ended:", currentTime > proposal.end_time);
+            console.log("    Final status:", status);
+
             return {
               name: proposal.name,
               status,
@@ -285,12 +406,19 @@ async function getProposalInfo(
             };
           }
         }
+      } else {
+        console.log("  No assets in this UTXO");
       }
     }
 
+    console.log("❌ No matching proposal UTXO found");
     return null;
   } catch (error) {
-    console.error("Error getting proposal info:", error);
+    console.error("❌ Error getting proposal info:", error);
+    console.error(
+      "Stack trace:",
+      error instanceof Error ? error.stack : "No stack trace"
+    );
     return null;
   }
 }

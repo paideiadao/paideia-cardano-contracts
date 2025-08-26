@@ -205,9 +205,9 @@ export default function BrowseDAOsPage() {
 
               {/* Action Buttons */}
               <Link
-                href={`/dao?policyId=${encodeURIComponent(
+                href={`/dao?daoPolicyId=${encodeURIComponent(
                   dao.policyId
-                )}&assetName=${encodeURIComponent(dao.assetName)}`}
+                )}&daoKey=${encodeURIComponent(dao.assetName)}`}
                 className="flex-1"
               >
                 <Button variant="outline" size="sm" className="w-full">
