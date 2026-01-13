@@ -151,7 +151,9 @@ Beyond the DAO platform itself, this project produced substantial reusable infra
 - Voting: https://preview.cardanoscan.io/transaction/a68887d9e0015f1b79674862519d1b4e8ce7c205904d38e15371a227e0e41148
 - Treasury Spending: https://preview.cardanoscan.io/transaction/2d2cc69bf22e16c6f452e9906e6be6dc45f65c9cfd704523fe2b75d2ce128009
 
-**Close-out Video:** [link coming soon]
+**Platform Demo:** https://www.youtube.com/watch?v=pM1USHL438A
+
+**Close-out Video:** https://www.youtube.com/watch?v=azO9lFTHmbc
 
 ---
 
