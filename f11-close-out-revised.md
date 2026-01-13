@@ -7,7 +7,6 @@
 | **Project Name** | Paideia: Building Blocks for DAO Management |
 | **Project URL** | https://projectcatalyst.io/funds/11/cardano-open-developers/paideia-building-blocks-for-dao-management |
 | **Project Number** | 1100227 |
-| **Project Manager** | Martin Morley |
 | **Project Start Date** | March 11, 2024 |
 | **Project Completion Date** | September 2025 |
 
