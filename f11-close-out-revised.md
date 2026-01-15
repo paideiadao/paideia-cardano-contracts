@@ -4,15 +4,16 @@
 
 | Field | Details |
 |-------|---------|
-| **Project Name** | Paideia: Building Blocks for DAO Management |
+| **Name of Project** | Paideia: Building Blocks for DAO Management |
 | **Project URL** | https://projectcatalyst.io/funds/11/cardano-open-developers/paideia-building-blocks-for-dao-management |
 | **Project Number** | 1100227 |
-| **Project Start Date** | March 11, 2024 |
-| **Project Completion Date** | September 2025 |
+| **Name of Project Manager** | Martin Morley |
+| **Date Project Started** | March 11, 2024 |
+| **Date Project Completed** | January 15, 2026 |
 
 ---
 
-## Challenge KPIs and How the Project Addressed Them
+## List of Challenge KPIs and How the Project Addressed Them
 
 The F11 "Cardano Open: Developers" challenge focused on improving the Cardano developer experience through open source technology.
 
@@ -24,14 +25,14 @@ The F11 "Cardano Open: Developers" challenge focused on improving the Cardano de
 
 ---
 
-## Project KPIs and How the Project Addressed Them
+## List of Project KPIs and How the Project Addressed Them
 
 | Project KPI | Status | Evidence |
 |-------------|--------|----------|
-| On-chain proposals | Delivered | TX: `708d920fc071fc3cc3f6fb4f8dc92b3b43d9ff12aa8a7386f568cb594e60b311` |
-| Treasury spending execution | Delivered | TX: `2d2cc69bf22e16c6f452e9906e6be6dc45f65c9cfd704523fe2b75d2ce128009` |
-| Open source contracts under GPL | Delivered | https://github.com/paideiadao/paideia-cardano-contracts |
-| Documentation enabling community use | Delivered | README, setup guides, architecture docs, and inline code documentation |
+| On-chain proposals | ✅ Delivered | TX: `708d920fc071fc3cc3f6fb4f8dc92b3b43d9ff12aa8a7386f568cb594e60b311` |
+| Treasury spending execution | ✅ Delivered | TX: `2d2cc69bf22e16c6f452e9906e6be6dc45f65c9cfd704523fe2b75d2ce128009` |
+| Open source contracts under GPL | ✅ Delivered | https://github.com/paideiadao/paideia-cardano-contracts |
+| Documentation enabling community use | ✅ Delivered | README, setup guides, architecture docs, and inline code documentation |
 
 ---
 
@@ -47,7 +48,7 @@ The F11 "Cardano Open: Developers" challenge focused on improving the Cardano de
 
 **Frontend-Driven Reference Script Deployment**
 
-A significant innovation: end users can deploy their own reference scripts directly from the web interface. This is critical because Cardano transactions are limited to 16kb, and without reference scripts, governance transactions exceed this limit. Our solution:
+End users can deploy their own reference scripts directly from the web interface. This is critical because Cardano transactions are limited to 16kb, and without reference scripts, governance transactions exceed this limit. Our solution:
 
 - Scans the burn address for existing script deployments to avoid duplicates
 - Builds deployment transactions client-side using Blaze SDK
@@ -62,83 +63,69 @@ Full implementation of the CIP-68 token metadata standard from frontend form to 
 - `TokenMintForm` component for creating governance tokens with proper metadata
 - Support for all three CIP-68 standards: NFTs (222), Fungible Tokens (333), Rich Fungible Tokens (444)
 - `cip68-metadata.ts` utilities for metadata validation, Plutus CBOR conversion, and datum construction
-- Reference/user token pair minting patterns (the "0000" reference NFT + "0001" user NFT pattern)
+- Reference/user token pair minting patterns
 - Token validation endpoint for using existing tokens as governance tokens
 
 **Off-Chain Infrastructure**
 
-*Plutus Data Handling:*
-- `address-parsing.ts` — Bidirectional conversion between Cardano addresses and Plutus Data, handling base addresses, enterprise addresses, script credentials, and stake credentials
-- `proposal-helpers.ts` — Complete datum parsing for proposals, actions, vote receipts, tally tracking, and proposal status evaluation
-- `script-helpers.ts` — Parameterized script creation, policy ID derivation, and script address generation
+- `address-parsing.ts` - Bidirectional conversion between Cardano addresses and Plutus Data
+- `proposal-helpers.ts` - Complete datum parsing for proposals, actions, vote receipts, and tally tracking
+- `script-helpers.ts` - Parameterized script creation, policy ID derivation, and script address generation
+- Full integration with Blaze SDK, Maestro API, and PostgreSQL caching via Prisma ORM
+- CIP-30 wallet connection via MeshSDK
 
-*Transaction Building:*
-- Full integration with **Blaze SDK** for transaction construction
-- Reference script usage reducing transaction sizes
-- Collateral handling, validity intervals, and redeemer construction
-- Complex multi-input/multi-output patterns for governance operations
-
-*Blockchain Data Access:*
-- **Maestro API** integration for UTXO queries, transaction history, and chain state
-- **PostgreSQL** caching layer via **Prisma ORM** with configurable TTLs
-- Transaction-to-address indexing for efficient action discovery
-- Automatic cache invalidation and cleanup
-
-*Wallet Integration:*
-- CIP-30 wallet connection via **MeshSDK** (Nami, Eternl, Lace, and others)
-- UTXO selection algorithms for governance token aggregation
-- Seed UTXO detection avoiding vote NFT conflicts
-
-### Collaboration & Engagement
+### Collaboration and Engagement
 
 - Worked with the Blaze SDK for transaction building patterns
 - Integrated Maestro API for reliable blockchain data
 - Published all learnings and code for ecosystem benefit under GPL-3.0
 
-### Technical Challenges Overcome
+---
 
-- Developed vote receipt cleanup system handling multiple concurrent proposals
-- Solved governance token withdrawal issues when users have outstanding votes on unevaluated proposals
-- Built proper error detection to inform users when proposals need evaluation before token withdrawal
-- Created the reference script deployment flow allowing non-technical users to deploy complex Plutus scripts
+## Key Learnings
+
+1. **Datum parsing requires significant manual work.** When building stateful dApps on Cardano, you must continuously read on-chain state. In our case, that was vote tallies, action targets, proposal status, etc. The Blaze SDK handles transaction building, but when reading existing on-chain data, it returns raw PlutusData. Automated TypeScript codegen from Aiken blueprints didn't exist during our development (though such tooling was funded in later Catalyst rounds). We built extensive custom utilities for parsing nested CBOR structures into usable TypeScript types.
+
+2. **Address handling is more complex than expected.** Converting between bech32 addresses and Plutus Data representations requires handling base addresses, enterprise addresses, script credentials, and stake credentials. We built bidirectional conversion utilities that other developers can reuse.
+
+3. **Transaction size limits require architectural planning.** Cardano's 16kb transaction limit meant we couldn't include validator scripts inline. We designed a reference script deployment system that lets users deploy scripts to the burn address and reference them in transactions, dramatically reducing transaction sizes.
+
+4. **Scope adjustments can add value.** The original proposal specified CLI tooling, but we built a full web frontend instead. This provided faster testing during development and more ecosystem value because non-technical users can now interact with DAOs without command-line knowledge.
+
+5. **Console logging is documentation.** We left extensive console logs in the codebase because debugging Plutus transactions is difficult. These logs serve as implicit documentation for anyone trying to understand the transaction flows.
 
 ---
 
-## Impact
+## Next Steps for the Product or Service Developed
 
-### Deliverables
+The project deliverables are complete and published under GPL license at https://github.com/paideiadao/paideia-cardano-contracts.
 
-- Working testnet deployment demonstrating complete DAO lifecycle
-- 6 Aiken validators covering all core governance operations
-- Full web interface enabling non-technical users to create and manage DAOs
-- Extensive TypeScript utilities for Cardano application development
-- Complete CIP-68 token minting system
-- Reference script deployment tooling
+**For the Paideia platform:**
+- We have requested funding for mainnet deployment in subsequent funds but were unsuccessful
+- The system currently only supports "send funds" actions; we'd like to add support for DAOs interacting with arbitrary smart contracts
+- A security review would be required before mainnet launch
+- If anyone has appetite to continue this work, the team is available
 
-### Ecosystem Contribution
-
-- First complete, open-source DAO management platform built natively for Cardano's UTXO model
-- Fills gap left by Summon (shut down) and provides more complete solution than Agora (off-chain voting only)
-- Reusable patterns and utilities for other Cardano developers:
-  - Plutus Data ↔ TypeScript conversion patterns
-  - Maestro caching layer (copy `utxo-cache.ts` directly)
-  - CIP-68 metadata utilities
-  - Reference script deployment flow
-  - Address parsing for complex credential types
+**For the ecosystem:**
+- Developers can extract individual utilities without adopting the full platform
+- `address-parsing.ts` for Plutus address handling
+- `cip68-metadata.ts` for token metadata
+- `utxo-cache.ts` caching pattern for Maestro-based applications
+- Reference script deployment flow for complex validator deployments
 
 ---
 
-## Why This Project Matters
+## Final Thoughts/Comments
 
-Cardano has lacked user-friendly DAO tooling with genuine on-chain execution. Existing solutions either shut down (Summon) or rely on off-chain voting without automated treasury execution (Agora). Paideia delivers what the ecosystem has been missing: a complete governance platform where community votes directly trigger smart contract actions without human intervention.
-
-When a DAO votes to spend funds, those funds move automatically. No multisig signers to trust, no manual execution step where someone could refuse or delay. This is what decentralized governance should look like.
+DAOs should be automated. Most DAO behavior in crypto involves some on-chain vote tally followed by manual fund transfers or trusted multisig wallets. We built Paideia to demonstrate what fully decentralized governance looks like: when a DAO votes to spend funds, those funds move automatically with no human intermediary.
 
 Beyond the DAO platform itself, this project produced substantial reusable infrastructure. The Plutus data handling utilities, CIP-68 implementation, caching patterns, and reference script deployment flow can all be extracted and used by other Cardano projects. The GPL license ensures this work benefits the entire ecosystem permanently.
 
+We want to thank the Cardano community for funding this project and trusting us to produce it. It was a great learning experience and we hope the code is useful to others.
+
 ---
 
-## Relevant Links
+## Links to Other Relevant Project Sources or Documents
 
 **Repositories:**
 - Main Repository: https://github.com/paideiadao/paideia-cardano-contracts
@@ -151,18 +138,10 @@ Beyond the DAO platform itself, this project produced substantial reusable infra
 - Voting: https://preview.cardanoscan.io/transaction/a68887d9e0015f1b79674862519d1b4e8ce7c205904d38e15371a227e0e41148
 - Treasury Spending: https://preview.cardanoscan.io/transaction/2d2cc69bf22e16c6f452e9906e6be6dc45f65c9cfd704523fe2b75d2ce128009
 
-**Platform Demo:** https://www.youtube.com/watch?v=pM1USHL438A
-
-**Close-out Video:** https://www.youtube.com/watch?v=azO9lFTHmbc
+**Platform Demo Video:** https://www.youtube.com/watch?v=pM1USHL438A
 
 ---
 
-## What's Next
+## Link to Close-out Video
 
-The project deliverables are complete and published under GPL license. The codebase is available at https://github.com/paideiadao/paideia-cardano-contracts for any Cardano projects or community members seeking DAO governance infrastructure or reusable off-chain components.
-
-The modular architecture allows developers to integrate individual utilities without adopting the full platform:
-- Extract `address-parsing.ts` for Plutus address handling
-- Use `cip68-metadata.ts` for token metadata
-- Copy the `utxo-cache.ts` caching pattern for any Maestro-based application
-- Reference the script deployment flow for other complex validator deployments
+https://www.youtube.com/watch?v=azO9lFTHmbc
